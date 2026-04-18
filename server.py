@@ -6,13 +6,15 @@ Exposes session token usage and cost data as MCP tools so Claude can
 query its own usage mid-conversation.
 
 Tools:
-  session_report          — Recent Claude Code sessions with cost and efficiency metrics
-  monthly_summary         — Total cost and token breakdown for a Claude Code billing month
-  calibrate_pricing       — Update the discount factor from actual billing
-  tool_impact             — Compare efficiency metrics for sessions that used a specific tool vs those that didn't
-  copilot_session_report  — Recent Copilot CLI sessions with output token metrics
-  copilot_monthly_summary — Monthly output token summary for Copilot CLI
-  configure_subscription  — Update active Claude or Copilot plan and monthly budget
+  session_report              — Recent Claude Code sessions with cost and efficiency metrics
+  monthly_summary             — Total cost and token breakdown for a Claude Code billing month
+  calibrate_pricing           — Update the discount factor from actual billing
+  tool_impact                 — Compare efficiency metrics for sessions that used a specific tool vs those that didn't
+  copilot_session_report      — Recent Copilot CLI sessions with output token metrics
+  copilot_monthly_summary     — Monthly output token summary for Copilot CLI
+  configure_subscription      — Update active Claude or Copilot plan and monthly budget
+  analyze_copilot_session     — Analyze a session for inefficient prompts, poor tool batching, bash overuse, missing memory
+  copilot_behavior_report     — Cross-session pattern analysis: recurring inefficiencies and actionable recommendations
 """
 
 import sys
@@ -148,6 +150,229 @@ def load_copilot_sessions() -> list[dict]:
 
     sessions.sort(key=lambda x: x["date"])
     return sessions
+
+
+def _find_active_session_id() -> Optional[str]:
+    """Return the session directory name that holds an inuse.*.lock file, or None."""
+    if not COPILOT_SESSIONS_PATH.exists():
+        return None
+    for session_dir in COPILOT_SESSIONS_PATH.iterdir():
+        if list(session_dir.glob("inuse.*.lock")):
+            return session_dir.name
+    return None
+
+
+def load_copilot_session_events(session_id: str) -> list[dict]:
+    """Load all events from a single Copilot session directory."""
+    events_file = COPILOT_SESSIONS_PATH / session_id / "events.jsonl"
+    if not events_file.exists():
+        return []
+    events: list[dict] = []
+    try:
+        with open(events_file) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        events.append(json.loads(line))
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    return events
+
+
+def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
+    """Analyse a session's events and return a structured findings dict."""
+    user_messages      = [e for e in events if e.get("type") == "user.message"]
+    assistant_messages = [e for e in events if e.get("type") == "assistant.message"]
+    tool_starts        = [e for e in events if e.get("type") == "tool.execution_start"]
+
+    # --- Prompt quality ---
+    _CONTINUATION = {"yes", "no", "ok", "sure", "proceed", "continue", "go ahead",
+                     "do it", "yes please", "sounds good", "perfect", "great"}
+    _VAGUE_PREFIXES = ("fix ", "update ", "change ", "do ", "make ", "add ", "remove ")
+    vague_prompts: list[dict] = []
+    for e in user_messages:
+        content = e.get("data", {}).get("content", "").strip()
+        if not content:
+            continue
+        low = content.lower()
+        if low in _CONTINUATION:
+            vague_prompts.append({"content": content, "reason": "continuation with no context"})
+        elif len(content) < 20 and not any(c.isalpha() for c in content[10:]):
+            vague_prompts.append({"content": content, "reason": "very short"})
+        elif len(content) < 45 and any(low.startswith(p) for p in _VAGUE_PREFIXES) and \
+                not any(ch in content for ch in ("/", ".", "_", "`")):
+            vague_prompts.append({"content": content, "reason": "vague imperative (no file/symbol)"})
+
+    # --- Tool batching (parallelism) ---
+    single_tool_turns = 0
+    multi_tool_turns  = 0
+    for msg in assistant_messages:
+        n = len(msg.get("data", {}).get("toolRequests", []))
+        if n == 1:
+            single_tool_turns += 1
+        elif n > 1:
+            multi_tool_turns += 1
+    total_tool_turns = single_tool_turns + multi_tool_turns
+    batching_pct = (multi_tool_turns / total_tool_turns * 100) if total_tool_turns else 0.0
+
+    # --- Tool diversity ---
+    tool_name_counts: dict[str, int] = {}
+    for e in tool_starts:
+        name = e.get("data", {}).get("toolName", "unknown")
+        tool_name_counts[name] = tool_name_counts.get(name, 0) + 1
+    total_tools = sum(tool_name_counts.values())
+    bash_count  = tool_name_counts.get("bash", 0)
+    bash_pct    = (bash_count / total_tools * 100) if total_tools else 0.0
+
+    # Bash commands that could use a specialised tool instead
+    bash_antipatterns: list[str] = []
+    seen_ap: set[str] = set()
+    for e in tool_starts:
+        if e.get("data", {}).get("toolName") != "bash":
+            continue
+        cmd = e.get("data", {}).get("arguments", {}).get("command", "")
+        checks = [
+            (r"\bgrep\b|\brg\b",           "grep/rg in bash → use the grep tool"),
+            (r"\bfind\b|\bls\b",           "find/ls in bash → use the glob tool"),
+            (r"\bcat\b|\bhead\b|\btail\b", "cat/head/tail in bash → use the view tool"),
+        ]
+        for pattern, msg in checks:
+            if msg not in seen_ap and re.search(pattern, cmd):
+                bash_antipatterns.append(msg)
+                seen_ap.add(msg)
+
+    # --- Memory utilisation ---
+    memory_used = any(
+        e.get("data", {}).get("toolName") == "store_memory"
+        for e in tool_starts
+    )
+
+    # --- Session metadata ---
+    start_event = next((e for e in events if e.get("type") == "session.start"), None)
+    cwd = start_event.get("data", {}).get("context", {}).get("cwd", "") if start_event else ""
+    timestamps = sorted(
+        datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00"))
+        for e in events if "timestamp" in e
+    )
+    duration_min = (
+        round((timestamps[-1] - timestamps[0]).total_seconds() / 60, 1)
+        if len(timestamps) >= 2 else 0.0
+    )
+    output_tokens = sum(
+        e.get("data", {}).get("outputTokens", 0)
+        for e in events if e.get("type") == "assistant.message"
+    )
+
+    return {
+        "session_id":        session_id[:8] if session_id else "",
+        "project":           Path(cwd).name if cwd else "unknown",
+        "turns":             len(user_messages),
+        "duration_min":      duration_min,
+        "output_tokens":     output_tokens,
+        "vague_prompts":     vague_prompts,
+        "single_tool_turns": single_tool_turns,
+        "multi_tool_turns":  multi_tool_turns,
+        "batching_pct":      batching_pct,
+        "tool_name_counts":  tool_name_counts,
+        "total_tools":       total_tools,
+        "bash_count":        bash_count,
+        "bash_pct":          bash_pct,
+        "bash_antipatterns": bash_antipatterns,
+        "memory_used":       memory_used,
+    }
+
+
+def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
+    label = " (ACTIVE)" if is_active else ""
+    lines = [
+        f"## Session Analysis — {analysis['project']} [{analysis['session_id']}]{label}",
+        f"Turns: {analysis['turns']}  |  Duration: {analysis['duration_min']} min"
+        f"  |  Output tokens: {fmt(analysis['output_tokens'])}",
+        "",
+    ]
+    suggestions: list[str] = []
+
+    # 1. Prompt quality
+    lines.append("### Prompt Quality")
+    vague = analysis["vague_prompts"]
+    if vague:
+        lines.append(f"⚠️  {len(vague)} potentially vague prompt(s):")
+        for p in vague[:5]:
+            snippet = p["content"][:60].replace("\n", " ")
+            lines.append(f'   • "{snippet}"  ({p["reason"]})')
+        suggestions.append(
+            "Add context to short/vague prompts — reference specific files, errors, or goals."
+        )
+    else:
+        lines.append("✅  Prompts appear specific and contextual.")
+    lines.append("")
+
+    # 2. Tool batching
+    lines.append("### Tool Batching (Parallelism)")
+    total_tt = analysis["single_tool_turns"] + analysis["multi_tool_turns"]
+    if total_tt:
+        lines.append(f"   Single-tool turns:  {analysis['single_tool_turns']:>3}  ({100 - analysis['batching_pct']:.0f}%)")
+        lines.append(f"   Multi-tool turns:   {analysis['multi_tool_turns']:>3}  ({analysis['batching_pct']:.0f}%)")
+        if analysis["batching_pct"] < 30 and total_tt >= 3:
+            lines.append(f"⚠️  Low parallelism — only {analysis['batching_pct']:.0f}% of tool turns batched multiple calls.")
+            suggestions.append(
+                "Ask Copilot to read multiple files or run multiple searches in a single turn."
+            )
+        else:
+            lines.append(f"✅  Good batching ratio ({analysis['batching_pct']:.0f}% multi-tool turns).")
+    else:
+        lines.append("   No tool turns recorded.")
+    lines.append("")
+
+    # 3. Tool diversity
+    lines.append("### Tool Usage")
+    if analysis["total_tools"]:
+        for name, count in sorted(analysis["tool_name_counts"].items(), key=lambda x: -x[1])[:8]:
+            pct = count / analysis["total_tools"] * 100
+            bar = "█" * max(1, int(pct / 5))
+            lines.append(f"   {name:<30} {count:>4}  ({pct:>4.0f}%)  {bar}")
+        lines.append("")
+        if analysis["bash_pct"] > 50 and analysis["bash_count"] >= 3:
+            lines.append(f"⚠️  Bash-heavy session ({analysis['bash_pct']:.0f}% of tool calls).")
+            suggestions.append(
+                "Use specialised tools instead of bash: grep (search), glob (find files), view (read files)."
+            )
+        if analysis["bash_antipatterns"]:
+            lines.append("⚠️  Bash used where a specialised tool would be better:")
+            for ap in analysis["bash_antipatterns"]:
+                lines.append(f"   • {ap}")
+            if not any("specialised" in s for s in suggestions):
+                suggestions.append(
+                    "Use specialised tools instead of bash: grep (search), glob (find files), view (read files)."
+                )
+    else:
+        lines.append("   No tool calls recorded.")
+    lines.append("")
+
+    # 4. Memory
+    lines.append("### Memory Utilisation")
+    if analysis["memory_used"]:
+        lines.append("✅  store_memory called — facts persisted for future sessions.")
+    else:
+        lines.append("⚠️  store_memory not called. Use it to persist key project facts across sessions.")
+        suggestions.append(
+            "Call store_memory during sessions to persist project conventions and reduce repetitive context."
+        )
+    lines.append("")
+
+    # Summary
+    lines.append("### Summary")
+    if suggestions:
+        lines.append(f"Issues found: {len(suggestions)}")
+        for i, s in enumerate(suggestions, 1):
+            lines.append(f"  {i}. {s}")
+    else:
+        lines.append("✅  No major inefficiencies detected.")
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +563,37 @@ def configure_subscription(
         overage_budget: Copilot only. Additional premium request budget cap in USD (e.g. 25.0).
     """
     return _configure_subscription({"service": service, "plan": plan, "monthly_budget": monthly_budget, "overage_budget": overage_budget})
+
+
+@mcp.tool
+def analyze_copilot_session(session_id: Optional[str] = None) -> str:
+    """Analyse a Copilot CLI session for inefficiencies and behavioural anti-patterns.
+
+    Checks prompt quality (vague/short prompts), tool batching (parallelism),
+    bash overuse vs specialised tools, and memory utilisation.
+
+    Defaults to the currently active session (inuse lock detected), then falls
+    back to the most recently modified session.
+
+    Args:
+        session_id: Full or partial session UUID. Omit to use the active/latest session.
+    """
+    return _analyze_copilot_session({"session_id": session_id})
+
+
+@mcp.tool
+def copilot_behavior_report(last: int = 10, month: Optional[str] = None) -> str:
+    """Cross-session pattern analysis for GitHub Copilot CLI sessions.
+
+    Aggregates behavioural signals across recent sessions to surface recurring
+    inefficiencies: vague prompts, low tool parallelism, bash overuse, missing
+    memory calls. Returns a scored summary with actionable recommendations.
+
+    Args:
+        last: Number of recent sessions to analyse (default: 10)
+        month: Limit to a specific month, e.g. '2026-04'
+    """
+    return _copilot_behavior_report({"last": last, "month": month})
 
 
 def _session_report(args: dict) -> str:
@@ -925,6 +1181,163 @@ def _configure_subscription(args: dict) -> str:
         lines.append(f"  Overage budget: ${float(overage_budget):.2f}  (premium request cap)")
         lines.append(f"  Total budget:   ${total:.2f}/mo")
     lines.append(f"\nSaved to {_config.CONFIG_PATH}.")
+    return "\n".join(lines)
+
+
+def _analyze_copilot_session(args: dict) -> str:
+    session_id = args.get("session_id") or ""
+
+    if not COPILOT_SESSIONS_PATH.exists():
+        return "No Copilot session data found at ~/.copilot/session-state/."
+
+    # Resolve to a full session directory name
+    if session_id and len(session_id) >= 36:
+        resolved = session_id  # already full UUID
+    elif session_id:
+        # Match by prefix
+        resolved = next(
+            (d.name for d in COPILOT_SESSIONS_PATH.iterdir() if d.name.startswith(session_id)),
+            None,
+        )
+        if not resolved:
+            return f"No session found matching prefix '{session_id}'."
+    else:
+        # Active session first, then most-recently-modified
+        resolved = _find_active_session_id()
+        if not resolved:
+            candidates = sorted(
+                (d for d in COPILOT_SESSIONS_PATH.iterdir() if (d / "events.jsonl").exists()),
+                key=lambda d: d.stat().st_mtime,
+                reverse=True,
+            )
+            resolved = candidates[0].name if candidates else None
+        if not resolved:
+            return "No Copilot sessions found."
+
+    events = load_copilot_session_events(resolved)
+    if not events:
+        return f"No events recorded for session {resolved[:8]}."
+
+    is_active = bool(list((COPILOT_SESSIONS_PATH / resolved).glob("inuse.*.lock")))
+    analysis  = _analyze_session_events(events, resolved)
+    return _format_session_analysis(analysis, is_active=is_active)
+
+
+def _copilot_behavior_report(args: dict) -> str:
+    last  = args.get("last", 10)
+    month = args.get("month")
+
+    if not COPILOT_SESSIONS_PATH.exists():
+        return "No Copilot session data found at ~/.copilot/session-state/."
+
+    # Gather session dirs sorted by most-recently-modified
+    candidates = sorted(
+        (d for d in COPILOT_SESSIONS_PATH.iterdir() if (d / "events.jsonl").exists()),
+        key=lambda d: d.stat().st_mtime,
+        reverse=True,
+    )
+
+    analyses: list[dict] = []
+    for session_dir in candidates:
+        if len(analyses) >= last:
+            break
+        events = load_copilot_session_events(session_dir.name)
+        if not events:
+            continue
+        start = next((e for e in events if e.get("type") == "session.start"), None)
+        if not start:
+            continue
+        if month and not start.get("timestamp", "").startswith(month):
+            continue
+        a = _analyze_session_events(events, session_dir.name)
+        if a["turns"] == 0:
+            continue
+        analyses.append(a)
+
+    if not analyses:
+        period = f" for {month}" if month else ""
+        return f"No sessions found{period}."
+
+    n = len(analyses)
+    vague_n      = sum(1 for a in analyses if a["vague_prompts"])
+    low_batch_n  = sum(1 for a in analyses if a["batching_pct"] < 30 and
+                       (a["single_tool_turns"] + a["multi_tool_turns"]) >= 3)
+    bash_heavy_n = sum(1 for a in analyses if a["bash_pct"] > 50 and a["bash_count"] >= 3)
+    no_memory_n  = sum(1 for a in analyses if not a["memory_used"])
+
+    batch_vals   = [a["batching_pct"] for a in analyses
+                    if (a["single_tool_turns"] + a["multi_tool_turns"]) > 0]
+    avg_batching = sum(batch_vals) / len(batch_vals) if batch_vals else 0.0
+
+    # Aggregate tool usage
+    all_tool_counts: dict[str, int] = {}
+    for a in analyses:
+        for name, count in a["tool_name_counts"].items():
+            all_tool_counts[name] = all_tool_counts.get(name, 0) + count
+    total_tool_calls = sum(all_tool_counts.values())
+
+    def signal(bad: int, total: int, threshold_pct: float = 30.0) -> str:
+        return "✅ Good" if (bad / total * 100) <= threshold_pct else "⚠️  Needs attention"
+
+    period_label = f" ({month})" if month else ""
+    div = "─" * 65
+    lines = [
+        f"## Copilot Behaviour Report — Last {n} Sessions{period_label}",
+        "",
+        f"{'Metric':<38} {'Value':>7}   Signal",
+        div,
+        f"{'Vague prompt sessions':<38} {vague_n:>3}/{n:<3}   {signal(vague_n, n)}",
+        f"{'Low-batching sessions (<30% multi-tool)':<38} {low_batch_n:>3}/{n:<3}   {signal(low_batch_n, n)}",
+        f"{'Bash-heavy sessions (>50% bash)':<38} {bash_heavy_n:>3}/{n:<3}   {signal(bash_heavy_n, n)}",
+        f"{'Sessions without store_memory':<38} {no_memory_n:>3}/{n:<3}   {signal(no_memory_n, n, 50.0)}",
+        f"{'Avg tool batching %':<38} {avg_batching:>6.1f}%   {'✅ Good' if avg_batching >= 30 else '⚠️  Needs attention'}",
+        div,
+        "",
+    ]
+
+    if total_tool_calls:
+        lines.append("### Tool Distribution (across all sessions)")
+        for name, count in sorted(all_tool_counts.items(), key=lambda x: -x[1])[:10]:
+            pct = count / total_tool_calls * 100
+            bar = "█" * max(1, int(pct / 5))
+            lines.append(f"  {name:<30} {count:>5}  ({pct:>4.0f}%)  {bar}")
+        lines.append("")
+
+    # Recommendations
+    recs: list[str] = []
+    if vague_n > n * 0.3:
+        recs.append(
+            "📝 Prompts: Many sessions contain vague prompts. "
+            "Include file names, error messages, or specific goals."
+        )
+    if low_batch_n > n * 0.4:
+        recs.append(
+            "⚡ Batching: Frequent low-parallelism sessions. "
+            "Ask Copilot to read or search multiple things in a single turn."
+        )
+    if bash_heavy_n > n * 0.3:
+        recs.append(
+            "🔧 Tools: Frequent bash-heavy sessions. "
+            "Prefer grep/glob/view tools over bash for file operations."
+        )
+    if no_memory_n == n:
+        recs.append(
+            "🧠 Memory: store_memory never called. "
+            "Persist project conventions and preferences to cut repetitive context-setting."
+        )
+    elif no_memory_n > n * 0.5:
+        recs.append(
+            "🧠 Memory: store_memory called in fewer than half of sessions. "
+            "Use it more consistently to reduce repeated context."
+        )
+
+    if recs:
+        lines.append("### Recommendations")
+        for r in recs:
+            lines.append(f"  {r}")
+    else:
+        lines.append("✅  No major behavioural patterns to flag.")
+
     return "\n".join(lines)
 
 

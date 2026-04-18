@@ -199,6 +199,33 @@ Update the discount factor from your actual Claude Code billing statement.
 | `actual_billed` | number | **Required.** Amount shown on your billing page (USD) |
 | `month` | string | Month being calibrated, e.g. `"2026-04"` (default: previous month) |
 
+### `copilot_behavior_report`
+
+Cross-session pattern analysis. Aggregates behavioural signals across recent sessions to surface recurring inefficiencies with actionable recommendations.
+
+```
+"Analyse my last 10 Copilot sessions for bad habits"
+"Show behaviour report for April 2026"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `last` | integer | Number of recent sessions to analyse (default: 10) |
+| `month` | string | Limit to a specific month, e.g. `"2026-04"` |
+
+### `analyze_copilot_session`
+
+Deep-dive analysis of a single Copilot CLI session. Checks prompt quality, tool batching (parallelism), bash overuse vs specialised tools, and memory utilisation.
+
+```
+"Analyse my current session"
+"Analyse session abc123 for inefficiencies"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `session_id` | string | Full or partial session UUID. Omit to use the active or most recent session. |
+
 ---
 
 ## CLI Tools

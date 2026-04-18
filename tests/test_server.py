@@ -4,12 +4,17 @@ Tests for the Scrooge MCP server using the FastMCP in-process client.
 
 import csv
 import json
+from datetime import datetime
 import pytest
 from pathlib import Path
 from fastmcp.client import Client
 from fastmcp.client.transports import FastMCPTransport
 
-from server import mcp, fmt, _matches_tool, _avg, _tok_per_turn, load_copilot_sessions
+from server import (
+    mcp, fmt, _matches_tool, _avg, _tok_per_turn,
+    load_copilot_sessions, load_copilot_session_events,
+    _analyze_session_events, _format_session_analysis, _find_active_session_id,
+)
 import server as _server
 
 
@@ -152,7 +157,7 @@ def test_tok_per_turn_zero_turns_fallback():
 
 async def test_list_tools_count(client):
     tools = await client.list_tools()
-    assert len(tools) == 7
+    assert len(tools) == 9
 
 
 async def test_list_tools_names(client):
@@ -166,6 +171,8 @@ async def test_list_tools_names(client):
         "copilot_session_report",
         "copilot_monthly_summary",
         "configure_subscription",
+        "analyze_copilot_session",
+        "copilot_behavior_report",
     }
 
 
@@ -447,6 +454,227 @@ async def test_configure_subscription_custom_budget(client):
     })
     text = _result_text(result)
     assert "39" in text or "Copilot" in text
+
+
+# ---------------------------------------------------------------------------
+# _analyze_session_events() — unit tests with synthetic event data
+# ---------------------------------------------------------------------------
+
+def _make_events(
+    user_prompts: list[str] | None = None,
+    tool_calls_per_turn: list[list[str]] | None = None,
+    store_memory: bool = False,
+    bash_commands: list[str] | None = None,
+) -> list[dict]:
+    """Build a minimal synthetic events.jsonl list for testing."""
+    from datetime import timezone as _tz
+    now = datetime(2026, 4, 18, 12, 0, 0, tzinfo=_tz.utc)
+
+    events: list[dict] = [
+        {
+            "type": "session.start",
+            "data": {"sessionId": "aaaa-bbbb", "context": {"cwd": "/home/user/myproject"}},
+            "timestamp": now.isoformat().replace("+00:00", "Z"),
+        }
+    ]
+
+    for i, prompt in enumerate(user_prompts or ["hello world"]):
+        events.append({
+            "type": "user.message",
+            "data": {"content": prompt},
+            "timestamp": now.isoformat().replace("+00:00", "Z"),
+        })
+        tool_names = (tool_calls_per_turn or [[]])[i] if tool_calls_per_turn and i < len(tool_calls_per_turn) else []
+        tool_requests = [{"toolCallId": f"tc{i}{j}", "name": t, "arguments": {}, "type": "function"}
+                         for j, t in enumerate(tool_names)]
+        events.append({
+            "type": "assistant.message",
+            "data": {"messageId": f"m{i}", "content": "", "toolRequests": tool_requests, "outputTokens": 500},
+            "timestamp": now.isoformat().replace("+00:00", "Z"),
+        })
+        for j, t in enumerate(tool_names):
+            events.append({
+                "type": "tool.execution_start",
+                "data": {"toolCallId": f"tc{i}{j}", "toolName": t, "arguments": {}},
+                "timestamp": now.isoformat().replace("+00:00", "Z"),
+            })
+
+    if store_memory:
+        events.append({
+            "type": "tool.execution_start",
+            "data": {"toolCallId": "mem1", "toolName": "store_memory", "arguments": {"fact": "x"}},
+            "timestamp": now.isoformat().replace("+00:00", "Z"),
+        })
+
+    for cmd in (bash_commands or []):
+        events.append({
+            "type": "tool.execution_start",
+            "data": {"toolCallId": "b1", "toolName": "bash", "arguments": {"command": cmd}},
+            "timestamp": now.isoformat().replace("+00:00", "Z"),
+        })
+
+    return events
+
+
+def test_analyze_session_events_basic_structure():
+    events = _make_events(["tell me about the project", "show me server.py"])
+    result = _analyze_session_events(events, "test-session-id")
+    assert result["session_id"] == "test-ses"
+    assert result["project"] == "myproject"
+    assert result["turns"] == 2
+    assert isinstance(result["vague_prompts"], list)
+    assert isinstance(result["tool_name_counts"], dict)
+
+
+def test_analyze_session_events_detects_continuation_prompt():
+    events = _make_events(["yes please"])
+    result = _analyze_session_events(events)
+    assert any(p["reason"] == "continuation with no context" for p in result["vague_prompts"])
+
+
+def test_analyze_session_events_specific_prompt_not_flagged():
+    events = _make_events(["Can you look at src/server.py and find why the import fails?"])
+    result = _analyze_session_events(events)
+    assert result["vague_prompts"] == []
+
+
+def test_analyze_session_events_memory_detected():
+    events = _make_events(store_memory=True)
+    result = _analyze_session_events(events)
+    assert result["memory_used"] is True
+
+
+def test_analyze_session_events_memory_not_detected():
+    events = _make_events()
+    result = _analyze_session_events(events)
+    assert result["memory_used"] is False
+
+
+def test_analyze_session_events_batching_multi_tool():
+    events = _make_events(
+        user_prompts=["read two files"],
+        tool_calls_per_turn=[["view", "grep"]],
+    )
+    result = _analyze_session_events(events)
+    assert result["multi_tool_turns"] == 1
+    assert result["single_tool_turns"] == 0
+    assert result["batching_pct"] == pytest.approx(100.0)
+
+
+def test_analyze_session_events_batching_single_tool():
+    events = _make_events(
+        user_prompts=["read one file"],
+        tool_calls_per_turn=[["view"]],
+    )
+    result = _analyze_session_events(events)
+    assert result["single_tool_turns"] == 1
+    assert result["multi_tool_turns"] == 0
+    assert result["batching_pct"] == pytest.approx(0.0)
+
+
+def test_analyze_session_events_bash_antipattern_grep():
+    events = _make_events(bash_commands=["grep 'foo' src/"])
+    result = _analyze_session_events(events)
+    assert any("grep" in ap for ap in result["bash_antipatterns"])
+
+
+def test_analyze_session_events_bash_antipattern_find():
+    events = _make_events(bash_commands=["find . -name '*.py'"])
+    result = _analyze_session_events(events)
+    assert any("find" in ap for ap in result["bash_antipatterns"])
+
+
+def test_analyze_session_events_no_bash_antipattern_for_git():
+    events = _make_events(bash_commands=["git status && git diff"])
+    result = _analyze_session_events(events)
+    assert result["bash_antipatterns"] == []
+
+
+def test_format_session_analysis_returns_string():
+    events = _make_events(["yes please"], store_memory=False)
+    analysis = _analyze_session_events(events, "abc123")
+    output = _format_session_analysis(analysis, is_active=True)
+    assert isinstance(output, str)
+    assert "ACTIVE" in output
+    assert "### Summary" in output
+
+
+def test_format_session_analysis_flags_no_memory():
+    events = _make_events()
+    analysis = _analyze_session_events(events)
+    output = _format_session_analysis(analysis)
+    assert "store_memory" in output
+
+
+def test_format_session_analysis_no_issues_when_clean():
+    events = _make_events(
+        user_prompts=["Please analyse src/server.py and tell me about the tool definitions"],
+        tool_calls_per_turn=[["view", "grep"]],
+        store_memory=True,
+    )
+    analysis = _analyze_session_events(events)
+    output = _format_session_analysis(analysis)
+    assert "No major inefficiencies" in output
+
+
+# ---------------------------------------------------------------------------
+# _find_active_session_id() — unit test
+# ---------------------------------------------------------------------------
+
+def test_find_active_session_id_returns_string_or_none():
+    result = _find_active_session_id()
+    assert result is None or isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# analyze_copilot_session — MCP tool (integration)
+# ---------------------------------------------------------------------------
+
+async def test_analyze_copilot_session_no_args(client):
+    result = await client.call_tool("analyze_copilot_session", {})
+    text = _result_text(result)
+    assert isinstance(text, str)
+    assert len(text) > 0
+
+
+async def test_analyze_copilot_session_invalid_prefix(client):
+    result = await client.call_tool("analyze_copilot_session", {"session_id": "zzzzzzz"})
+    text = _result_text(result)
+    assert "No session" in text or "zzzzzzz" in text
+
+
+async def test_analyze_copilot_session_output_has_sections(client):
+    result = await client.call_tool("analyze_copilot_session", {})
+    text = _result_text(result)
+    # Should have at least the analysis sections or a "no sessions" message
+    has_sections = all(s in text for s in ["Prompt Quality", "Tool Batching", "Memory"])
+    has_no_data  = "No Copilot" in text or "No sessions" in text or "No events" in text
+    assert has_sections or has_no_data
+
+
+# ---------------------------------------------------------------------------
+# copilot_behavior_report — MCP tool (integration)
+# ---------------------------------------------------------------------------
+
+async def test_copilot_behavior_report_default(client):
+    result = await client.call_tool("copilot_behavior_report", {})
+    text = _result_text(result)
+    assert isinstance(text, str)
+    assert len(text) > 0
+
+
+async def test_copilot_behavior_report_unknown_month(client):
+    result = await client.call_tool("copilot_behavior_report", {"month": "1999-01"})
+    text = _result_text(result)
+    assert "No sessions" in text or "1999-01" in text
+
+
+async def test_copilot_behavior_report_has_sections(client):
+    result = await client.call_tool("copilot_behavior_report", {"last": 5})
+    text = _result_text(result)
+    has_report    = "Behaviour Report" in text and "Recommendations" in text
+    has_no_data   = "No sessions" in text or "No Copilot" in text
+    assert has_report or has_no_data
 
 
 async def test_configure_subscription_plan_and_budget_override(client):
