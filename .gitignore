@@ -1,5 +1,11 @@
-# Vendored dependencies (install with: uv pip install --target lib fastmcp)
+# Vendored dependencies (install with: uv pip install -e .)
 lib/
+
+# uv virtual environment
+.venv/
+
+# MCP server config (paths are machine-specific)
+.mcp.json
 
 # Python
 __pycache__/

@@ -1,6 +1,6 @@
 # scrooge
 
-MCP server that exposes Claude Code session token usage and cost data as tools, so Claude can query its own usage mid-conversation.
+MCP server that exposes Claude Code and GitHub Copilot CLI session token usage and cost data as tools, so your AI assistant can query its own usage mid-conversation.
 
 Also includes a Stop hook that automatically logs each session to a CSV, and CLI tools for reporting and pricing calibration.
 
@@ -8,14 +8,14 @@ Also includes a Stop hook that automatically logs each session to a CSV, and CLI
 
 ## Prerequisites
 
-- [Claude Code](https://claude.ai/code) installed
-- Python 3.12+ via [uv](https://docs.astral.sh/uv/)
+- [Claude Code](https://claude.ai/code) and/or [GitHub Copilot CLI](https://githubnext.com/projects/copilot-cli) installed
+- Python 3.13+ via [uv](https://docs.astral.sh/uv/)
 
-Check that Python 3.12 is available:
+Check that Python 3.13 is available:
 
 ```bash
-~/.local/bin/python3.12 --version
-# If missing: uv python install 3.12
+uv python install 3.13
+uv run python --version
 ```
 
 ---
@@ -26,23 +26,43 @@ Check that Python 3.12 is available:
 
 ```bash
 cd ~/Developer/personal/scrooge
-uv pip install --target lib fastmcp
+uv pip install -e .
 ```
 
 ### 2. Register the MCP server
+
+#### Claude Code
 
 Add to `~/.claude/settings.json` under `mcpServers`:
 
 ```json
 "mcpServers": {
   "scrooge": {
-    "command": "/Users/YOUR_USERNAME/.local/bin/python3.12",
-    "args": ["/Users/YOUR_USERNAME/Developer/personal/scrooge/server.py"]
+    "command": "/opt/homebrew/bin/uv",
+    "args": ["run", "--project", "/Users/YOUR_USERNAME/Developer/personal/scrooge", "python", "/Users/YOUR_USERNAME/Developer/personal/scrooge/server.py"]
   }
 }
 ```
 
 Replace `YOUR_USERNAME` with your macOS username (`whoami`).
+
+#### GitHub Copilot CLI
+
+Create (or update) `.mcp.json` in the repo root:
+
+```json
+{
+  "mcpServers": {
+    "scrooge": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/uv",
+      "args": ["run", "--project", "/Users/YOUR_USERNAME/Developer/personal/scrooge", "python", "/Users/YOUR_USERNAME/Developer/personal/scrooge/server.py"]
+    }
+  }
+}
+```
+
+> **Note:** `.mcp.json` is gitignored because paths are machine-specific. Each contributor creates their own locally.
 
 ### 3. Wire up the Stop hook
 
@@ -53,7 +73,7 @@ Add to `~/.claude/settings.json` under `hooks`:
   "Stop": [{
     "hooks": [{
       "type": "command",
-      "command": "/Users/YOUR_USERNAME/.local/bin/python3.12 /Users/YOUR_USERNAME/Developer/personal/scrooge/log.py 2>/dev/null || true"
+      "command": "/opt/homebrew/bin/uv run --project /Users/YOUR_USERNAME/Developer/personal/scrooge python /Users/YOUR_USERNAME/Developer/personal/scrooge/log.py 2>/dev/null || true"
     }]
   }]
 }
@@ -207,9 +227,9 @@ export PATH="$HOME/Developer/personal/scrooge:$PATH"
 ### Recalibrate pricing
 
 ```bash
-~/.local/bin/python3.12 ~/Developer/personal/scrooge/calibrate.py 185.50
+uv run python ~/Developer/personal/scrooge/calibrate.py 185.50
 # Specify a past month:
-~/.local/bin/python3.12 ~/Developer/personal/scrooge/calibrate.py 198.36 --month 2026-04
+uv run python ~/Developer/personal/scrooge/calibrate.py 198.36 --month 2026-04
 ```
 
 ---
@@ -231,8 +251,8 @@ The `discount_factor` (default `0.5868` ≈ 41% off list) is applied uniformly. 
 
 ```bash
 npx @modelcontextprotocol/inspector \
-  /Users/YOUR_USERNAME/.local/bin/python3.12 \
-  ~/Developer/personal/scrooge/server.py
+  /opt/homebrew/bin/uv \
+  run --project ~/Developer/personal/scrooge python ~/Developer/personal/scrooge/server.py
 ```
 
 ---

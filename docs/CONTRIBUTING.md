@@ -36,7 +36,7 @@ Claude asks about usage
 ## Getting started
 
 1. Clone the repository
-2. Install dependencies: `uv pip install --target lib fastmcp`
+2. Install dependencies: `uv pip install -e .`
 3. Create a feature branch: `git checkout -b feat/your-feature`
 4. Make your changes and commit following [Conventional Commits](https://www.conventionalcommits.org/)
 5. Open a pull request against `main`
@@ -74,8 +74,8 @@ Add an entry here when a new MCP plugin is added to your Claude Code setup. For 
 
 ```bash
 npx @modelcontextprotocol/inspector \
-  ~/.local/bin/python3.12 \
-  ~/Developer/personal/scrooge/server.py
+  /opt/homebrew/bin/uv \
+  run --project ~/Developer/personal/scrooge python ~/Developer/personal/scrooge/server.py
 ```
 
 ---
@@ -85,17 +85,17 @@ npx @modelcontextprotocol/inspector \
 Edit `LIST_PRICES` in `pricing.py` to add new models or adjust prices. Recalibrate after each billing cycle:
 
 ```bash
-~/.local/bin/python3.12 calibrate.py <actual_billed>
+uv run python calibrate.py <actual_billed>
 ```
 
 ---
 
 ## Dependencies
 
-Dependencies are bundled in `lib/` (installed via `uv pip install --target lib fastmcp`). The `lib/` directory is excluded from git. To update:
+Dependencies are bundled in `lib/` (installed via `uv pip install -e .`). The `lib/` directory is excluded from git. To reinstall:
 
 ```bash
-uv pip install --target lib <package>
+uv pip install -e .
 ```
 
 Do not add runtime dependencies that aren't needed by all three entry points (`server.py`, `log.py`, `scrooge`). The Stop hook runs on every session end and must be fast and reliable.
@@ -104,4 +104,4 @@ Do not add runtime dependencies that aren't needed by all three entry points (`s
 
 ## Python Version
 
-Requires Python 3.12+ (uv-managed). Always invoke with `~/.local/bin/python3.12` explicitly.
+Requires Python 3.13+ (uv-managed). Use `uv run` — it reads `pyproject.toml` and resolves the correct Python version automatically.
