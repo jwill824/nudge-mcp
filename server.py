@@ -153,12 +153,55 @@ def load_copilot_sessions() -> list[dict]:
 
 
 def _find_active_session_id() -> Optional[str]:
-    """Return the session directory name that holds an inuse.*.lock file, or None."""
+    """Return the best active session directory name.
+
+    Priority (each tier sorted by updated_at descending, preferring sessions
+    that actually have an events.jsonl):
+    1. Active session whose cwd matches CWD and has events.jsonl.
+    2. Active session whose cwd matches CWD (no events.jsonl yet).
+    3. Any other active session with events.jsonl (most recently updated).
+    4. Any active session (most recently updated).
+    """
     if not COPILOT_SESSIONS_PATH.exists():
         return None
+
+    import yaml
+
+    cwd = str(Path.cwd())
+    # buckets: (cwd_match_with_events, cwd_match_no_events, other_with_events, other)
+    buckets: list[list[tuple[str, str]]] = [[], [], [], []]
+
     for session_dir in COPILOT_SESSIONS_PATH.iterdir():
-        if list(session_dir.glob("inuse.*.lock")):
-            return session_dir.name
+        if not list(session_dir.glob("inuse.*.lock")):
+            continue
+        session_id = session_dir.name
+        has_events = (session_dir / "events.jsonl").exists()
+        updated = ""
+        session_cwd = ""
+        ws = session_dir / "workspace.yaml"
+        if ws.exists():
+            try:
+                with open(ws) as f:
+                    meta = yaml.safe_load(f)
+                if meta:
+                    session_cwd = meta.get("cwd", "")
+                    updated = str(meta.get("updated_at", ""))
+            except Exception:
+                pass
+        cwd_match = session_cwd == cwd
+        if cwd_match and has_events:
+            buckets[0].append((session_id, updated))
+        elif cwd_match:
+            buckets[1].append((session_id, updated))
+        elif has_events:
+            buckets[2].append((session_id, updated))
+        else:
+            buckets[3].append((session_id, updated))
+
+    for bucket in buckets:
+        if bucket:
+            bucket.sort(key=lambda x: x[1], reverse=True)
+            return bucket[0][0]
     return None
 
 
