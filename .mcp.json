@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "scrooge": {
+      "type": "stdio",
+      "command": "/Users/jeff.williams/.local/bin/python3.12",
+      "args": ["/Users/jeff.williams/Developer/personal/mcp-session-stats/server.py"]
+    }
+  }
+}

@@ -1,0 +1,10 @@
+# Vendored dependencies (install with: uv pip install --target lib fastmcp)
+lib/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# macOS
+.DS_Store

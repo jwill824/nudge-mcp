@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""
+Scrooge session report — Claude Code and GitHub Copilot CLI.
+
+Usage:
+  scrooge                        # Claude sessions (all)
+  scrooge --last 20              # Last N Claude sessions
+  scrooge --today                # Today only
+  scrooge --month 2026-04        # Specific month
+  scrooge --session abc123       # One session by ID prefix
+  scrooge --copilot              # Copilot CLI sessions
+  scrooge --copilot --last 10    # Last N Copilot sessions
+  scrooge --copilot --month 2026-04
+
+Pricing: calibrated from actual billing. To recalibrate:
+  python3 calibrate.py <actual_billed>
+"""
+
+import argparse
+import csv
+import json
+import sys
+from datetime import date, datetime
+from glob import glob
+from pathlib import Path
+
+_HERE = Path(__file__).parent
+sys.path.insert(0, str(_HERE))
+
+CSV_PATH = Path.home() / ".config" / "scrooge" / "sessions.csv"
+COPILOT_SESSIONS_PATH = Path.home() / ".copilot" / "session-state"
+COPILOT_CONFIG_PATH = Path.home() / ".copilot" / "config.json"
+
+
+def fmt(n):
+    n = int(n)
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.0f}k"
+    return str(n)
+
+
+def _discount_note():
+    try:
+        import config as _c
+        df = _c.load().get("discount_factor", 0.5868)
+        return f"~{(1-df)*100:.0f}% off list (calibrated)"
+    except Exception:
+        return "calibrated pricing"
+
+
+# ---------------------------------------------------------------------------
+# Claude sessions
+# ---------------------------------------------------------------------------
+
+def load_claude_rows(args):
+    if not CSV_PATH.exists():
+        print("No session data yet. Sessions are logged automatically on Stop.")
+        sys.exit(0)
+
+    with open(CSV_PATH) as f:
+        rows = list(csv.DictReader(f))
+
+    today = date.today().isoformat()
+    if args.today:
+        rows = [r for r in rows if r["date"].startswith(today)]
+    elif args.month:
+        rows = [r for r in rows if r["date"].startswith(args.month)]
+    elif args.session:
+        rows = [r for r in rows if r["session_id"].startswith(args.session)]
+
+    if args.last:
+        rows = rows[-args.last:]
+    return rows
+
+
+def print_claude_table(rows):
+    if not rows:
+        print("No sessions found.")
+        return
+
+    for r in rows:
+        turns = int(r.get("turns", 1)) or 1
+        r["_tok_per_turn"] = fmt(int(r["total_tokens"]) // turns)
+
+    header = (
+        f"{'Date':<17} {'Proj':<12} {'Branch':<22} "
+        f"{'In':>7} {'Out':>7} {'CacheR':>8} {'Total':>8} "
+        f"{'Cache%':>7} {'$/sess':>7} {'Min':>5} {'Turns':>5} {'Tok/T':>7}"
+    )
+    div = "─" * len(header)
+    print(div)
+    print(header)
+    print(div)
+
+    total_cost = 0.0
+    for r in rows:
+        cost = float(r.get("est_cost_usd", 0))
+        total_cost += cost
+        branch = r.get("branch", "")[:22]
+        print(
+            f"{r['date']:<17} {r['project']:<12} {branch:<22} "
+            f"{fmt(r['input_tokens']):>7} {fmt(r['output_tokens']):>7} "
+            f"{fmt(r['cache_read_tokens']):>8} {fmt(r['total_tokens']):>8} "
+            f"{r['cache_hit_pct']:>6}% ${cost:>6.4f} "
+            f"{r['duration_min']:>5} {r['turns']:>5} {r['_tok_per_turn']:>7}"
+        )
+
+    print(div)
+    if len(rows) > 1:
+        avg_cache = sum(float(r["cache_hit_pct"]) for r in rows) / len(rows)
+        avg_cost = total_cost / len(rows)
+        print(
+            f"\nSessions: {len(rows)}  |  Total: ${total_cost:.4f}  |  "
+            f"Avg/session: ${avg_cost:.4f}  |  Avg cache hit: {avg_cache:.1f}%"
+        )
+
+    print(f"\nCache hit guide: >80% excellent  |  60-80% good  |  <60% prompts changing frequently")
+    print(f"Costs use inferred internal pricing ({_discount_note()}). Recalibrate: calibrate.py <actual>")
+
+
+# ---------------------------------------------------------------------------
+# Copilot sessions
+# ---------------------------------------------------------------------------
+
+def _default_copilot_model():
+    try:
+        with open(COPILOT_CONFIG_PATH) as f:
+            return json.load(f).get("defaultModelId", "claude-sonnet-4-6")
+    except Exception:
+        return "claude-sonnet-4-6"
+
+
+def load_copilot_sessions(args):
+    if not COPILOT_SESSIONS_PATH.exists():
+        print("No Copilot CLI session data found.")
+        sys.exit(0)
+
+    default_model = _default_copilot_model()
+    sessions = []
+
+    for events_file in sorted(COPILOT_SESSIONS_PATH.glob("*/events.jsonl")):
+        workspace_file = events_file.parent / "workspace.yaml"
+        project = "unknown"
+        if workspace_file.exists():
+            for line in workspace_file.read_text().splitlines():
+                if line.startswith("repoName:"):
+                    project = line.split(":", 1)[1].strip()[:12]
+                    break
+
+        output_tokens = turns = 0
+        model = default_model
+        timestamps = []
+
+        with open(events_file) as f:
+            for line in f:
+                try:
+                    ev = json.loads(line.strip())
+                except Exception:
+                    continue
+                if ev.get("type") == "session.start":
+                    model = ev.get("data", {}).get("selectedModel", model)
+                if ev.get("type") == "session.model_change":
+                    model = ev.get("data", {}).get("newModel", model)
+                if ev.get("type") == "assistant.message":
+                    output_tokens += ev.get("data", {}).get("outputTokens", 0)
+                    turns += 1
+                ts = ev.get("createdAt") or ev.get("timestamp")
+                if ts:
+                    try:
+                        timestamps.append(datetime.fromisoformat(ts.replace("Z", "+00:00")))
+                    except Exception:
+                        pass
+
+        if turns == 0:
+            continue
+
+        timestamps.sort()
+        date_str = timestamps[0].strftime("%Y-%m-%d %H:%M") if timestamps else ""
+        duration_min = (
+            round((timestamps[-1] - timestamps[0]).total_seconds() / 60, 1)
+            if len(timestamps) >= 2 else 0.0
+        )
+
+        sessions.append({
+            "date": date_str,
+            "project": project,
+            "model": model,
+            "output_tokens": output_tokens,
+            "turns": turns,
+            "duration_min": duration_min,
+        })
+
+    today = date.today().isoformat()
+    if args.today:
+        sessions = [s for s in sessions if s["date"].startswith(today)]
+    elif args.month:
+        sessions = [s for s in sessions if s["date"].startswith(args.month)]
+
+    if args.last:
+        sessions = sessions[-args.last:]
+    return sessions
+
+
+def print_copilot_table(sessions):
+    if not sessions:
+        print("No Copilot CLI sessions found.")
+        return
+
+    header = (
+        f"{'Date':<17} {'Project':<12} {'Model':<22} "
+        f"{'Output':>8} {'Turns':>5} {'Min':>5} {'OutT/T':>7}"
+    )
+    div = "─" * len(header)
+    print(div)
+    print(header)
+    print(div)
+
+    total_output = 0
+    for s in sessions:
+        turns = s["turns"] or 1
+        out_per_turn = fmt(s["output_tokens"] // turns)
+        total_output += s["output_tokens"]
+        print(
+            f"{s['date']:<17} {s['project']:<12} {s['model']:<22} "
+            f"{fmt(s['output_tokens']):>8} {s['turns']:>5} "
+            f"{s['duration_min']:>5} {out_per_turn:>7}"
+        )
+
+    print(div)
+    if len(sessions) > 1:
+        avg_out = total_output / len(sessions)
+        print(
+            f"\nSessions: {len(sessions)}  |  Total output: {fmt(total_output)}  |  "
+            f"Avg/session: {fmt(int(avg_out))}"
+        )
+
+    print("\nNote: Only output tokens tracked — Copilot CLI does not expose input/cache counts.")
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(description="Scrooge session report")
+    parser.add_argument("--copilot", action="store_true", help="Show Copilot CLI sessions instead of Claude")
+    parser.add_argument("--last", type=int, metavar="N", help="Last N sessions")
+    parser.add_argument("--today", action="store_true", help="Today only")
+    parser.add_argument("--month", metavar="YYYY-MM", help="Specific month")
+    parser.add_argument("--session", metavar="ID", help="Session ID prefix (Claude only)")
+    args = parser.parse_args()
+
+    if args.copilot:
+        print_copilot_table(load_copilot_sessions(args))
+    else:
+        print_claude_table(load_claude_rows(args))
+
+
+if __name__ == "__main__":
+    main()

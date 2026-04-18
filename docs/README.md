@@ -1,18 +1,268 @@
-# [Project Name]
+# scrooge
 
-> [Short description]
+MCP server that exposes Claude Code session token usage and cost data as tools, so Claude can query its own usage mid-conversation.
 
-## Overview
+Also includes a Stop hook that automatically logs each session to a CSV, and CLI tools for reporting and pricing calibration.
 
-<!-- What does this project do? Who is it for? -->
+---
 
-## Getting started
+## Prerequisites
+
+- [Claude Code](https://claude.ai/code) installed
+- Python 3.12+ via [uv](https://docs.astral.sh/uv/)
+
+Check that Python 3.12 is available:
 
 ```bash
-git clone https://github.com/USER/YOUR_REPO.git
-cd YOUR_REPO
+~/.local/bin/python3.12 --version
+# If missing: uv python install 3.12
 ```
 
-## Development
+---
 
-See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for the full development workflow.
+## Installation
+
+### 1. Install dependencies
+
+```bash
+cd ~/Developer/personal/scrooge
+uv pip install --target lib fastmcp
+```
+
+### 2. Register the MCP server
+
+Add to `~/.claude/settings.json` under `mcpServers`:
+
+```json
+"mcpServers": {
+  "scrooge": {
+    "command": "/Users/YOUR_USERNAME/.local/bin/python3.12",
+    "args": ["/Users/YOUR_USERNAME/Developer/personal/scrooge/server.py"]
+  }
+}
+```
+
+Replace `YOUR_USERNAME` with your macOS username (`whoami`).
+
+### 3. Wire up the Stop hook
+
+Add to `~/.claude/settings.json` under `hooks`:
+
+```json
+"hooks": {
+  "Stop": [{
+    "hooks": [{
+      "type": "command",
+      "command": "/Users/YOUR_USERNAME/.local/bin/python3.12 /Users/YOUR_USERNAME/Developer/personal/scrooge/log.py 2>/dev/null || true"
+    }]
+  }]
+}
+```
+
+This automatically logs token usage to `~/.config/scrooge/sessions.csv` every time a Claude Code session ends.
+
+### 4. Restart Claude Code
+
+The MCP server connects on startup. You should see `scrooge` listed when you run `/mcp` in Claude Code.
+
+---
+
+## MCP Tools
+
+Once installed, ask Claude naturally — it will call the tools automatically.
+
+### `session_report`
+
+Recent sessions with per-session cost and efficiency metrics.
+
+```
+"Show my session report for today"
+"Show the last 10 sessions"
+"Show sessions for April 2026"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `last` | integer | Show last N sessions (default: 20) |
+| `today` | boolean | Today's sessions only |
+| `month` | string | Filter by month, e.g. `"2026-04"` |
+
+### `monthly_summary`
+
+Total token usage and estimated cost for a Claude Code billing month. Shows spend vs your configured monthly budget with remaining runway.
+
+```
+"What's my estimated spend for this month?"
+"Show my April 2026 monthly summary"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `month` | string | Month in `YYYY-MM` format (default: current month) |
+
+### `copilot_monthly_summary`
+
+Monthly output token summary for GitHub Copilot CLI sessions. Shows total output tokens, top projects, and equivalent API cost vs your flat subscription to highlight savings.
+
+```
+"What's my Copilot usage this month?"
+"Show Copilot summary for April 2026"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `month` | string | Month in `YYYY-MM` format (default: current month) |
+
+### `configure_subscription`
+
+Update the active Claude Code or GitHub Copilot plan and monthly budget.
+
+```
+"Set my Claude plan to claude_max_400"
+"My Copilot budget changed to $39 — update it"
+"Set my Claude budget to 350"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `service` | string | **Required.** `"claude"` or `"copilot"` |
+| `plan` | string | Named plan key (see below) |
+| `monthly_budget` | number | Custom budget in USD — overrides the plan default |
+
+**Claude plans:** `claude_pro` ($20), `claude_max_100` ($100), `claude_max_200` ($200), `claude_max_400` ($400), `api` ($0)
+
+**Copilot plans:** `copilot_free` ($0), `copilot_pro` ($10), `copilot_pro_plus` ($39), `copilot_business` ($19/seat), `copilot_enterprise` ($39/seat)
+
+### `tool_impact`
+
+Compare session efficiency between sessions that used a specific tool vs those that didn't.
+
+```
+"What impact does Serena have on my session efficiency?"
+"Compare sessions that used ck vs those that didn't"
+"Show the impact of Read calls in April 2026"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `tool` | string | **Required.** Tool name — e.g. `"serena"`, `"ck"`, `"ast-grep"`, `"Read"`, `"Grep"`, `"Bash"` |
+| `month` | string | Limit to a specific month, e.g. `"2026-04"`. Defaults to all history. |
+
+### `copilot_session_report`
+
+Show GitHub Copilot CLI session output token usage and efficiency metrics.
+
+```
+"Show my Copilot CLI session report"
+"Show Copilot sessions for April 2026"
+"Show today's Copilot sessions"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `last` | integer | Show last N sessions (default: 20) |
+| `today` | boolean | Today's sessions only |
+| `month` | string | Filter by month, e.g. `"2026-04"` |
+
+> **Note:** Only `output_tokens` are tracked. The Copilot CLI does not expose input or cache token counts.
+
+### `calibrate_pricing`
+
+Update the discount factor from your actual Claude Code billing statement.
+
+```
+"Calibrate pricing — I was billed $185.50 last month"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `actual_billed` | number | **Required.** Amount shown on your billing page (USD) |
+| `month` | string | Month being calibrated, e.g. `"2026-04"` (default: previous month) |
+
+---
+
+## CLI Tools
+
+### Session report
+
+```bash
+~/Developer/personal/scrooge/scrooge             # All Claude sessions
+~/Developer/personal/scrooge/scrooge --last 20   # Last N sessions
+~/Developer/personal/scrooge/scrooge --today     # Today only
+~/Developer/personal/scrooge/scrooge --month 2026-04
+~/Developer/personal/scrooge/scrooge --session abc123  # By session ID prefix
+
+~/Developer/personal/scrooge/scrooge --copilot             # Copilot CLI sessions
+~/Developer/personal/scrooge/scrooge --copilot --last 10
+~/Developer/personal/scrooge/scrooge --copilot --month 2026-04
+```
+
+Add the directory to your PATH for shorter invocations:
+
+```bash
+# In ~/.zshrc
+export PATH="$HOME/Developer/personal/scrooge:$PATH"
+```
+
+### Recalibrate pricing
+
+```bash
+~/.local/bin/python3.12 ~/Developer/personal/scrooge/calibrate.py 185.50
+# Specify a past month:
+~/.local/bin/python3.12 ~/Developer/personal/scrooge/calibrate.py 198.36 --month 2026-04
+```
+
+---
+
+## Pricing Model
+
+| Token type | List price | Notes |
+|-----------|-----------|-------|
+| Input | $3.00/MTok | |
+| Output | $15.00/MTok | |
+| Cache read | $0.30/MTok | Cheapest — high cache hit % = efficiency |
+| Cache creation | $3.75/MTok | |
+
+The `discount_factor` (default `0.5868` ≈ 41% off list) is applied uniformly. Recalibrate monthly for accuracy.
+
+---
+
+## Testing with MCP Inspector
+
+```bash
+npx @modelcontextprotocol/inspector \
+  /Users/YOUR_USERNAME/.local/bin/python3.12 \
+  ~/Developer/personal/scrooge/server.py
+```
+
+---
+
+## Interpreting the Stats
+
+### Cache hit %
+
+| Range | Meaning |
+|-------|---------|
+| **>80%** | Excellent — system prompts and agent frontmatter are stable |
+| **60–80%** | Good — some prompt churn |
+| **<60%** | Prompts are unstable or sessions are very short |
+
+### tokens/turn
+
+| Range | Meaning |
+|-------|---------|
+| **~40–60k** | Efficient — targeted lookups |
+| **~80–120k** | Moderate — some broad file reads |
+| **>150k** | High — likely speculative reads or large context |
+
+---
+
+## Data
+
+Sessions are stored at `~/.config/scrooge/sessions.csv`.
+
+CSV columns: `date`, `session_id`, `project`, `branch`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_create_tokens`, `total_tokens`, `cache_hit_pct`, `est_cost_usd`, `duration_min`, `turns`
+
+---
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and project structure.
