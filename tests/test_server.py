@@ -794,6 +794,68 @@ def test_analyze_session_events_session_health_clean():
     assert result["session_health_signals"] == []
 
 
+def test_analyze_session_events_system_prompt_overhead_present():
+    """system_prompt_* fields present even with no system.message events."""
+    events = _make_events()
+    result = _analyze_session_events(events)
+    assert "system_prompt_turns" in result
+    assert "system_prompt_avg_kb" in result
+    assert "system_prompt_total_kb" in result
+    assert result["system_prompt_turns"] == 0
+    assert result["system_prompt_total_kb"] == 0.0
+
+
+def test_analyze_session_events_system_prompt_overhead_tracked():
+    """system.message events are measured correctly."""
+    from datetime import timezone as _tz
+    now = datetime(2026, 4, 18, 12, 0, 0, tzinfo=_tz.utc)
+    events = _make_events()
+    # Inject two system.message events of 10 KB each
+    for _ in range(2):
+        events.append({
+            "type": "system.message",
+            "data": {"content": "x" * 10_240},  # 10 KB
+            "timestamp": now.isoformat().replace("+00:00", "Z"),
+        })
+    result = _analyze_session_events(events)
+    assert result["system_prompt_turns"] == 2
+    assert result["system_prompt_avg_kb"] == 10.0
+    assert result["system_prompt_total_kb"] == 20.0
+
+
+def test_format_session_analysis_shows_system_prompt_line():
+    """System prompt overhead line appears in Context Volume & Rot section."""
+    from datetime import timezone as _tz
+    now = datetime(2026, 4, 18, 12, 0, 0, tzinfo=_tz.utc)
+    events = _make_events()
+    events.append({
+        "type": "system.message",
+        "data": {"content": "x" * 10_240},
+        "timestamp": now.isoformat().replace("+00:00", "Z"),
+    })
+    analysis = _analyze_session_events(events)
+    output = _format_session_analysis(analysis)
+    assert "System prompt" in output
+    assert "always-on" in output
+
+
+def test_format_session_analysis_growth_warning_when_large_delta():
+    """Growth warning fires when max-min >= 2 KB."""
+    events = _make_events()
+    analysis = _analyze_session_events(events)
+    # Simulate growth signal manually
+    analysis["system_prompt_turns"] = 10
+    analysis["system_prompt_avg_kb"] = 34.0
+    analysis["system_prompt_total_kb"] = 340.0
+    analysis["system_prompt_min_kb"] = 32.0
+    analysis["system_prompt_max_kb"] = 36.0
+    analysis["system_prompt_growth_kb"] = 4.0
+    output = _format_session_analysis(analysis)
+    assert "grew" in output.lower()
+    assert "4.0 KB" in output
+
+
+
 def test_analyze_session_events_session_health_long_duration():
     """duration_min > 90 triggers health signal."""
     from datetime import timezone as _tz

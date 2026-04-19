@@ -356,6 +356,21 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         for e in memory_events
     ]
 
+    # --- System prompt (always-on) overhead ---
+    # system.message events are injected every turn and include the base system prompt,
+    # environment context, memories, and MCP tool descriptions. Tool *schemas* (inputSchema)
+    # are sent as a separate `tools` API parameter not logged in events, but they contribute
+    # to the size variation visible here. This is the best measurable proxy for always-on overhead.
+    system_messages = [e for e in events if e.get("type") == "system.message"]
+    system_msg_sizes = [len(e.get("data", {}).get("content", "")) for e in system_messages]
+    system_prompt_turns = len(system_msg_sizes)
+    system_prompt_avg_kb = round((sum(system_msg_sizes) / max(system_prompt_turns, 1)) / 1024, 1)
+    system_prompt_total_kb = round(sum(system_msg_sizes) / 1024, 1)
+    system_prompt_min_kb = round(min(system_msg_sizes) / 1024, 1) if system_msg_sizes else 0.0
+    system_prompt_max_kb = round(max(system_msg_sizes) / 1024, 1) if system_msg_sizes else 0.0
+    # Growth from min to max suggests additions mid-session (new MCP tools, expanded memories, etc.)
+    system_prompt_growth_kb = round(system_prompt_max_kb - system_prompt_min_kb, 1)
+
     # --- MCP tool context cost ---
     # Build a lookup from toolCallId -> result payload size using execution_complete events
     tool_result_sizes: dict[str, int] = {}  # toolName -> total chars returned
@@ -540,6 +555,12 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         "heavy_context_tools": heavy_context_tools,
         "tool_result_sizes": tool_result_sizes,
         "tool_result_counts": tool_result_counts,
+        "system_prompt_turns":    system_prompt_turns,
+        "system_prompt_avg_kb":   system_prompt_avg_kb,
+        "system_prompt_total_kb": system_prompt_total_kb,
+        "system_prompt_min_kb":   system_prompt_min_kb,
+        "system_prompt_max_kb":   system_prompt_max_kb,
+        "system_prompt_growth_kb": system_prompt_growth_kb,
         "total_context_kb":  total_context_kb,
         "repeated_view_paths": repeated_view_paths,
         "redundant_reads":   redundant_reads,
@@ -703,6 +724,30 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
 
     if not heavy and total_kb < 200 and redundant < 3:
         lines.append("   No context rot signals detected.")
+
+    # System prompt (always-on) overhead
+    sp_avg  = analysis.get("system_prompt_avg_kb", 0.0)
+    sp_total = analysis.get("system_prompt_total_kb", 0.0)
+    sp_turns = analysis.get("system_prompt_turns", 0)
+    sp_growth = analysis.get("system_prompt_growth_kb", 0.0)
+    sp_min  = analysis.get("system_prompt_min_kb", 0.0)
+    sp_max  = analysis.get("system_prompt_max_kb", 0.0)
+    if sp_turns > 0:
+        lines.append(f"   System prompt: {sp_avg} KB/turn × {sp_turns} turns = {sp_total} KB total always-on overhead.")
+        if sp_growth >= 2.0:
+            lines.append(
+                f"   ⚠️  System prompt grew {sp_growth} KB during session ({sp_min}→{sp_max} KB). "
+                "Possible causes: new MCP tools connected, additional memories stored."
+            )
+            suggestions.append(
+                f"System prompt grew {sp_growth} KB mid-session — "
+                "review which MCP servers are connected and whether all are needed."
+            )
+        else:
+            lines.append(
+                "   Note: MCP tool schemas are sent alongside this but are not separately logged. "
+                "Reduce always-on overhead by disabling unused MCP servers."
+            )
 
     lines.append("")
 
