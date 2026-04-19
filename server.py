@@ -288,10 +288,55 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
                 seen_ap.add(msg)
 
     # --- Memory utilisation ---
-    memory_used = any(
-        e.get("data", {}).get("toolName") == "store_memory"
+    memory_events = [
+        e for e in tool_starts
+        if e.get("data", {}).get("toolName") == "store_memory"
+    ]
+    memory_used = bool(memory_events)
+    memory_subjects = [
+        e.get("data", {}).get("arguments", {}).get("subject", "")
+        for e in memory_events
+    ]
+
+    # --- MCP tool context cost ---
+    # Build a lookup from toolCallId -> result payload size using execution_complete events
+    tool_result_sizes: dict[str, int] = {}  # toolName -> total chars returned
+    tool_result_counts: dict[str, int] = {}
+    exec_complete = [e for e in events if e.get("type") == "tool.execution_complete"]
+    # Map toolCallId -> toolName from tool_starts
+    call_id_to_name: dict[str, str] = {
+        e.get("data", {}).get("toolCallId", ""): e.get("data", {}).get("toolName", "")
         for e in tool_starts
-    )
+    }
+    for e in exec_complete:
+        data = e.get("data", {})
+        call_id = data.get("toolCallId", "")
+        tool_name = call_id_to_name.get(call_id, "")
+        if not tool_name:
+            continue
+        result = data.get("result", {})
+        # Use the 'content' field (what the model sees) if available
+        if isinstance(result, dict):
+            content = result.get("content", "") or result.get("detailedContent", "")
+        else:
+            content = str(result)
+        size = len(str(content))
+        tool_result_sizes[tool_name] = tool_result_sizes.get(tool_name, 0) + size
+        tool_result_counts[tool_name] = tool_result_counts.get(tool_name, 0) + 1
+
+    # Average result size per tool call (chars); flag tools averaging > 2 KB
+    _CONTEXT_WARN_CHARS = 2_000
+    heavy_context_tools: list[dict] = []
+    for name, total_size in tool_result_sizes.items():
+        count = tool_result_counts.get(name, 1)
+        avg = total_size // count
+        if avg > _CONTEXT_WARN_CHARS:
+            heavy_context_tools.append({
+                "name":   name,
+                "calls":  count,
+                "avg_kb": round(avg / 1024, 1),
+                "total_kb": round(total_size / 1024, 1),
+            })
 
     # --- Session metadata ---
     start_event = next((e for e in events if e.get("type") == "session.start"), None)
@@ -325,6 +370,10 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         "bash_pct":          bash_pct,
         "bash_antipatterns": bash_antipatterns,
         "memory_used":       memory_used,
+        "memory_subjects":   memory_subjects,
+        "heavy_context_tools": heavy_context_tools,
+        "tool_result_sizes": tool_result_sizes,
+        "tool_result_counts": tool_result_counts,
     }
 
 
@@ -398,13 +447,31 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
     # 4. Memory
     lines.append("### Memory Utilisation")
     if analysis["memory_used"]:
-        lines.append("✅  store_memory called — facts persisted for future sessions.")
+        subjects = [s for s in analysis["memory_subjects"] if s]
+        count = len(analysis["memory_subjects"])
+        lines.append(f"✅  store_memory called {count}x — facts persisted for future sessions.")
+        if subjects:
+            lines.append(f"   Stored: {', '.join(subjects)}")
     else:
         lines.append("⚠️  store_memory not called. Use it to persist key project facts across sessions.")
         suggestions.append(
             "Call store_memory during sessions to persist project conventions and reduce repetitive context."
         )
     lines.append("")
+
+    # 5. MCP / tool context cost
+    heavy = analysis.get("heavy_context_tools", [])
+    if heavy:
+        lines.append("### Context Cost (Heavy Tools)")
+        lines.append("   Tool results > 2 KB average — these consume significant context each call:")
+        for t in sorted(heavy, key=lambda x: -x["avg_kb"]):
+            lines.append(
+                f"   • {t['name']:<35} {t['calls']}x  avg {t['avg_kb']} KB  total {t['total_kb']} KB"
+            )
+        suggestions.append(
+            "Large MCP/tool responses consume context quickly — consider scoping queries or summarising results."
+        )
+        lines.append("")
 
     # Summary
     lines.append("### Summary")
@@ -1307,6 +1374,7 @@ def _copilot_behavior_report(args: dict) -> str:
                        (a["single_tool_turns"] + a["multi_tool_turns"]) >= 3)
     bash_heavy_n = sum(1 for a in analyses if a["bash_pct"] > 50 and a["bash_count"] >= 3)
     no_memory_n  = sum(1 for a in analyses if not a["memory_used"])
+    total_memory_calls = sum(len(a.get("memory_subjects", [])) for a in analyses)
 
     batch_vals   = [a["batching_pct"] for a in analyses
                     if (a["single_tool_turns"] + a["multi_tool_turns"]) > 0]
@@ -1318,6 +1386,25 @@ def _copilot_behavior_report(args: dict) -> str:
         for name, count in a["tool_name_counts"].items():
             all_tool_counts[name] = all_tool_counts.get(name, 0) + count
     total_tool_calls = sum(all_tool_counts.values())
+
+    # Aggregate tool result sizes across sessions
+    all_result_sizes: dict[str, int] = {}
+    all_result_counts: dict[str, int] = {}
+    for a in analyses:
+        for name, size in a.get("tool_result_sizes", {}).items():
+            all_result_sizes[name] = all_result_sizes.get(name, 0) + size
+            all_result_counts[name] = all_result_counts.get(name, 0) + a.get("tool_result_counts", {}).get(name, 0)
+    _CONTEXT_WARN_CHARS = 2_000
+    agg_heavy_tools = [
+        {
+            "name":     name,
+            "calls":    all_result_counts.get(name, 1),
+            "avg_kb":   round(size / max(all_result_counts.get(name, 1), 1) / 1024, 1),
+            "total_kb": round(size / 1024, 1),
+        }
+        for name, size in all_result_sizes.items()
+        if size // max(all_result_counts.get(name, 1), 1) > _CONTEXT_WARN_CHARS
+    ]
 
     def signal(bad: int, total: int, threshold_pct: float = 30.0) -> str:
         return "✅ Good" if (bad / total * 100) <= threshold_pct else "⚠️  Needs attention"
@@ -1333,6 +1420,7 @@ def _copilot_behavior_report(args: dict) -> str:
         f"{'Low-batching sessions (<30% multi-tool)':<38} {low_batch_n:>3}/{n:<3}   {signal(low_batch_n, n)}",
         f"{'Bash-heavy sessions (>50% bash)':<38} {bash_heavy_n:>3}/{n:<3}   {signal(bash_heavy_n, n)}",
         f"{'Sessions without store_memory':<38} {no_memory_n:>3}/{n:<3}   {signal(no_memory_n, n, 50.0)}",
+        f"{'Total store_memory calls':<38} {total_memory_calls:>7}",
         f"{'Avg tool batching %':<38} {avg_batching:>6.1f}%   {'✅ Good' if avg_batching >= 30 else '⚠️  Needs attention'}",
         div,
         "",
@@ -1344,6 +1432,13 @@ def _copilot_behavior_report(args: dict) -> str:
             pct = count / total_tool_calls * 100
             bar = "█" * max(1, int(pct / 5))
             lines.append(f"  {name:<30} {count:>5}  ({pct:>4.0f}%)  {bar}")
+        lines.append("")
+
+    if agg_heavy_tools:
+        lines.append("### Context Cost (Heavy Tools, avg > 2 KB per call)")
+        lines.append(f"  {'Tool':<35} {'Calls':>5}  {'Avg KB':>6}  {'Total KB':>8}")
+        for t in sorted(agg_heavy_tools, key=lambda x: -x["avg_kb"]):
+            lines.append(f"  {t['name']:<35} {t['calls']:>5}  {t['avg_kb']:>6}  {t['total_kb']:>8}")
         lines.append("")
 
     # Recommendations
@@ -1372,6 +1467,12 @@ def _copilot_behavior_report(args: dict) -> str:
         recs.append(
             "🧠 Memory: store_memory called in fewer than half of sessions. "
             "Use it more consistently to reduce repeated context."
+        )
+    if agg_heavy_tools:
+        top = agg_heavy_tools[0]["name"]
+        recs.append(
+            f"📦 Context: Heavy tool responses detected (e.g. {top}). "
+            "Consider scoping queries or summarising large results to preserve context."
         )
 
     if recs:
