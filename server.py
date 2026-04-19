@@ -37,12 +37,10 @@ from fastmcp import FastMCP
 
 import config as _config
 
-from core.loaders import fmt
 from core.claude import (
     _session_report,
     _monthly_summary,
     _calibrate,
-    _matches_tool,
     _tool_impact,
 )
 from core.copilot import (
@@ -55,8 +53,6 @@ from core.copilot import (
     _copilot_budget_forecast,
     _record_copilot_spend,
     _copilot_premium_usage,
-    _get_gh_token,
-    _get_gh_username,
 )
 
 mcp = FastMCP("scrooge")
