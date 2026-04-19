@@ -504,6 +504,22 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         for e in events if e.get("type") == "assistant.message"
     )
 
+    # --- Session health: stagnation and over-duration signals ---
+    # Four measurable signals that indicate the session context is degrading.
+    # Each signal adds 1 to the score; score drives the health verdict.
+    _session_health_signals: list[str] = []
+    if duration_min > 90:
+        _session_health_signals.append(f"Long duration: {duration_min:.0f} min")
+    if len(user_messages) > 50:
+        _session_health_signals.append(f"High turn count: {len(user_messages)} turns")
+    if total_context_kb >= 200:
+        _session_health_signals.append(f"Heavy context load: {total_context_kb} KB loaded")
+    if redundant_reads >= 3 and repeat_view_pct >= 15:
+        _session_health_signals.append(
+            f"Context rot: {redundant_reads} redundant file reads ({repeat_view_pct}%)"
+        )
+    _session_health_score = len(_session_health_signals)
+
     return {
         "session_id":        session_id[:8] if session_id else "",
         "project":           Path(cwd).name if cwd else "unknown",
@@ -532,6 +548,8 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         "smart_tools_used":  smart_tools_used,
         "mcp_tool_analysis": mcp_tool_analysis,
         "skill_tools_used":  skill_tools_used,
+        "session_health_signals": _session_health_signals,
+        "session_health_score":   _session_health_score,
     }
 
 
@@ -784,6 +802,54 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
                 "No agentic workflow tools used — Superpowers, GSD, or Spec-Kit could reduce context "
                 "overhead and prevent quality degradation in sessions like this."
             )
+    lines.append("")
+
+    # 9. Session health: stagnation and over-duration
+    health_score = analysis.get("session_health_score", 0)
+    health_signals = analysis.get("session_health_signals", [])
+    lines.append("### Session Health")
+    if health_score == 0:
+        lines.append("✅  Session healthy — no stagnation or over-duration signals detected.")
+    elif health_score == 1:
+        lines.append(f"💡 Session getting long — monitor for quality degradation.")
+        lines.append(f"   Signal: {health_signals[0]}")
+        lines.append(
+            "   Start a new session if switching to an unrelated topic or feature.\n"
+            "   Stay if continuing the same task thread — accumulated context helps."
+        )
+    else:
+        emoji = "⚠️ " if health_score == 2 else "🔴"
+        lines.append(f"{emoji} Context stagnation risk — {health_score}/4 degradation signals active:")
+        for sig in health_signals:
+            lines.append(f"   • {sig}")
+        lines.append("")
+        lines.append("   Start a new session when:")
+        lines.append("   • Switching to a different feature or unrelated task")
+        lines.append("   • After completing a major milestone")
+        lines.append("   • Responses feel repetitive, miss prior context, or re-ask clarifying questions")
+        lines.append("   Stay in this session when:")
+        lines.append("   • Continuing the same task thread (accumulated context is an advantage)")
+        lines.append("   • Mid-way through a multi-step implementation")
+        lines.append("")
+        lines.append("   How agentic tools help avoid forced restarts:")
+        lines.append(
+            f"   • Superpowers: dispatches each task to a fresh subagent — parent session stays lean\n"
+            f"     → https://github.com/obra/superpowers"
+        )
+        lines.append(
+            f"   • GSD: context engineering prevents rot; /gsd-new-project re-loads state in a fresh session\n"
+            f"     → https://github.com/gsd-build/get-shit-done"
+        )
+        lines.append(
+            f"   • Spec-Kit: specs encode all intent — /speckit.constitution bootstraps a new session cheaply\n"
+            f"     → https://github.github.com/spec-kit/"
+        )
+        if health_score >= 3:
+            suggestions.append(
+                f"High stagnation risk ({health_score}/4 signals) — start a fresh session for new work. "
+                "Use Superpowers or GSD to preserve state across session boundaries."
+            )
+
     lines.append("")
 
     # Summary

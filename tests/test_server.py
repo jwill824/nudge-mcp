@@ -787,6 +787,52 @@ def test_format_session_analysis_shows_high_volume_warning():
     assert "context window filling" in output or "very high context load" in output
 
 
+def test_analyze_session_events_session_health_clean():
+    events = _make_events()
+    result = _analyze_session_events(events)
+    assert result["session_health_score"] == 0
+    assert result["session_health_signals"] == []
+
+
+def test_analyze_session_events_session_health_long_duration():
+    """duration_min > 90 triggers health signal."""
+    from datetime import timezone as _tz
+    now = datetime(2026, 4, 18, 12, 0, 0, tzinfo=_tz.utc)
+    old = datetime(2026, 4, 18, 9, 0, 0, tzinfo=_tz.utc)  # 3 hours earlier
+    events = _make_events()
+    events[0]["timestamp"] = old.isoformat().replace("+00:00", "Z")
+    result = _analyze_session_events(events)
+    assert result["session_health_score"] >= 1
+    assert any("duration" in s.lower() for s in result["session_health_signals"])
+
+
+def test_format_session_analysis_shows_health_section():
+    events = _make_events()
+    analysis = _analyze_session_events(events)
+    output = _format_session_analysis(analysis)
+    assert "Session Health" in output
+    assert "healthy" in output.lower()
+
+
+def test_format_session_analysis_stagnation_warning_when_high_score():
+    """Manually craft an analysis dict with score=3 to check stagnation output."""
+    events = _make_events()
+    analysis = _analyze_session_events(events)
+    # Override health fields to simulate a degraded session
+    analysis["session_health_score"] = 3
+    analysis["session_health_signals"] = [
+        "Long duration: 200 min",
+        "High turn count: 60 turns",
+        "Heavy context load: 350 KB loaded",
+    ]
+    output = _format_session_analysis(analysis)
+    assert "stagnation risk" in output.lower()
+    assert "Start a new session" in output
+    assert "Superpowers" in output
+    assert "GSD" in output
+    assert "Spec-Kit" in output
+
+
 # ---------------------------------------------------------------------------
 # _find_active_session_id() — unit test
 # ---------------------------------------------------------------------------
