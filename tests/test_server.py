@@ -720,16 +720,16 @@ def test_format_session_analysis_shows_skill_section():
     })
     analysis = _analyze_session_events(events)
     output = _format_session_analysis(analysis)
-    assert "Session Structure Tools" in output
-    assert "superpowers" in output
+    assert "Agentic Workflow Tools" in output
+    assert "Superpowers" in output
 
 
 def test_format_session_analysis_shows_no_skills_message():
     events = _make_events()
     analysis = _analyze_session_events(events)
     output = _format_session_analysis(analysis)
-    assert "Session Structure Tools" in output
-    assert "No skills detected" in output
+    assert "Agentic Workflow Tools" in output
+    assert "No agentic workflow tools detected" in output
 
 
 # ---------------------------------------------------------------------------

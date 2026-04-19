@@ -50,6 +50,39 @@ CSV_PATH = Path.home() / ".config" / "scrooge" / "sessions.csv"
 COPILOT_SESSIONS_PATH = Path.home() / ".copilot" / "session-state"
 COPILOT_CONFIG_PATH = Path.home() / ".copilot" / "config.json"
 
+# Metadata for known agentic workflow systems (skills, subagent orchestrators, spec-driven tools).
+# These are not just prompts — they bring tools, subagents, and structured multi-step workflows
+# that reduce context overhead and prevent context rot across long sessions.
+_WORKFLOW_TOOLS: dict[str, dict] = {
+    "superpowers": {
+        "label": "Superpowers",
+        "url": "https://github.com/obra/superpowers",
+        "benefit": (
+            "Subagent-driven development isolates context per task so each sub-task starts fresh. "
+            "Enforces TDD (RED-GREEN-REFACTOR) and systematic debugging — prevents context rot across tasks."
+        ),
+        "best_for": "multi-task implementation, long sessions, TDD discipline",
+    },
+    "get-shit-done": {
+        "label": "Get Shit Done (GSD)",
+        "url": "https://github.com/gsd-build/get-shit-done",
+        "benefit": (
+            "Context engineering layer explicitly solves context rot — the quality degradation as the context window fills. "
+            "Subagent orchestration with state management keeps each planning/implementation phase clean."
+        ),
+        "best_for": "long sessions, new projects, preventing quality degradation",
+    },
+    "spec-kit": {
+        "label": "Spec-Kit",
+        "url": "https://github.github.com/spec-kit/",
+        "benefit": (
+            "Spec-Driven Development makes specifications executable before coding begins. "
+            "Multi-step refinement reduces rework turns vs one-shot generation from prompts."
+        ),
+        "best_for": "greenfield projects, spec-first development, org/enterprise workflows",
+    },
+}
+
 mcp = FastMCP("scrooge")
 
 
@@ -396,34 +429,42 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         })
     mcp_tool_analysis.sort(key=lambda x: -x["avg_kb"])
 
-    # --- Session structure tools / skills ---
-    _SKILL_NAMES = {
-        "blog-writing-specialist", "find-skills", "customize-cloud-agent",
-        "superpowers", "get-shit-done", "get_shit_done", "spec-kit", "speckit",
-        "speckit-constitution", "speckit.constitution",
+    # --- Agentic workflow tools (skills, subagent systems, spec-driven tools) ---
+    # Alias → canonical name mapping
+    _WORKFLOW_ALIASES: dict[str, str] = {
+        "superpowers": "superpowers",
+        "get-shit-done": "get-shit-done",
+        "get_shit_done": "get-shit-done",
+        "spec-kit": "spec-kit",
+        "speckit": "spec-kit",
+        "speckit-constitution": "spec-kit",
+        "speckit.constitution": "spec-kit",
+        "blog-writing-specialist": "blog-writing-specialist",
+        "find-skills": "find-skills",
+        "customize-cloud-agent": "customize-cloud-agent",
     }
+    _SKILL_NAMES = set(_WORKFLOW_ALIASES.keys())
     skill_tools_used: list[dict] = []
     for e in tool_starts:
         tool_name = e.get("data", {}).get("toolName", "")
         args = e.get("data", {}).get("arguments", {})
-        # Detect via skill tool with a skill argument
         if tool_name == "skill":
-            skill = args.get("skill", "")
-            if skill:
-                existing = next((s for s in skill_tools_used if s["name"] == skill), None)
+            raw = args.get("skill", "")
+            if raw:
+                canonical = _WORKFLOW_ALIASES.get(raw, raw)
+                existing = next((s for s in skill_tools_used if s["name"] == canonical), None)
                 if existing:
                     existing["calls"] += 1
                 else:
-                    skill_tools_used.append({"name": skill, "calls": 1, "via": "skill tool"})
-        # Detect by tool name directly matching a known skill
+                    skill_tools_used.append({"name": canonical, "calls": 1, "via": "skill tool"})
         else:
-            for s in _SKILL_NAMES:
-                if s in tool_name.lower():
-                    existing = next((x for x in skill_tools_used if x["name"] == tool_name), None)
+            for alias, canonical in _WORKFLOW_ALIASES.items():
+                if alias in tool_name.lower():
+                    existing = next((x for x in skill_tools_used if x["name"] == canonical), None)
                     if existing:
                         existing["calls"] += 1
                     else:
-                        skill_tools_used.append({"name": tool_name, "calls": 1, "via": "direct"})
+                        skill_tools_used.append({"name": canonical, "calls": 1, "via": "direct"})
                     break
 
     # --- Session metadata ---
@@ -600,18 +641,64 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
             )
         lines.append("")
 
-    # 8. Session structure tools / skills
-    skills = analysis.get("skill_tools_used", [])
-    lines.append("### Session Structure Tools")
-    if skills:
-        for s in skills:
-            lines.append(f"   ✅ {s['name']}  ({s['calls']}x)")
-    else:
+    # 8. Agentic workflow tools
+    workflows = analysis.get("skill_tools_used", [])
+    lines.append("### Agentic Workflow Tools")
+    if workflows:
         lines.append(
-            "   No skills detected (superpowers, get-shit-done, spec-kit, etc.).\n"
-            "   Skills can reduce turns by providing structured workflows — "
-            "try /find-skills to discover available ones."
+            "   These structured systems reduce context overhead with tools, subagents, and multi-step workflows:"
         )
+        for w in workflows:
+            meta = _WORKFLOW_TOOLS.get(w["name"])
+            if meta:
+                lines.append(f"   ✅ {meta['label']}  ({w['calls']}x)")
+                lines.append(f"      {meta['benefit']}")
+            else:
+                lines.append(f"   ✅ {w['name']}  ({w['calls']}x)")
+    else:
+        lines.append("⚠️  No agentic workflow tools detected.")
+        lines.append(
+            "   These go beyond individual skills — they bring tools, subagents, and structured\n"
+            "   multi-step workflows that reduce context overhead and prevent context rot."
+        )
+        turns = analysis.get("turns", 0)
+        duration_min = analysis.get("duration_min", 0)
+        view_count = analysis.get("tool_name_counts", {}).get("view", 0)
+        recs: list[str] = []
+        if turns > 30 or duration_min > 60:
+            meta = _WORKFLOW_TOOLS["get-shit-done"]
+            recs.append(
+                f"   • {meta['label']} ({meta['url']})\n"
+                f"     Why: {turns} turns / {duration_min} min — context rot likely\n"
+                f"     Best for: {meta['best_for']}"
+            )
+        if view_count > 20:
+            meta = _WORKFLOW_TOOLS["superpowers"]
+            recs.append(
+                f"   • {meta['label']} ({meta['url']})\n"
+                f"     Why: {view_count} view calls — subagent isolation keeps per-task context lean\n"
+                f"     Best for: {meta['best_for']}"
+            )
+        if turns > 15:
+            meta = _WORKFLOW_TOOLS["spec-kit"]
+            recs.append(
+                f"   • {meta['label']} ({meta['url']})\n"
+                f"     Why: complex session — spec-first reduces implementation rework turns\n"
+                f"     Best for: {meta['best_for']}"
+            )
+        if recs:
+            lines.append("   Based on this session:")
+            lines.extend(recs)
+        else:
+            lines.append(
+                "   Consider: Superpowers, Get Shit Done (GSD), or Spec-Kit\n"
+                "   Run /find-skills to discover what's available in your environment."
+            )
+        if turns > 10 or duration_min > 30:
+            suggestions.append(
+                "No agentic workflow tools used — Superpowers, GSD, or Spec-Kit could reduce context "
+                "overhead and prevent quality degradation in sessions like this."
+            )
     lines.append("")
 
     # Summary

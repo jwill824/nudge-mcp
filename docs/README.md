@@ -215,7 +215,7 @@ Cross-session pattern analysis. Aggregates behavioural signals across recent ses
 
 ### `analyze_copilot_session`
 
-Deep-dive analysis of a single Copilot CLI session. Checks prompt quality, tool batching (parallelism), bash overuse vs specialised tools, memory utilisation, context cost (heavy tool results), smart code intelligence tool usage (Serena, ck, ast-grep), MCP tool budget (avg KB/call vs call frequency with disable recommendations), and session structure tools (skills like superpowers, get-shit-done, spec-kit).
+Deep-dive analysis of a single Copilot CLI session. Checks prompt quality, tool batching (parallelism), bash overuse vs specialised tools, memory utilisation, context cost (heavy tool results), smart code intelligence tool usage (Serena, ck, ast-grep), MCP tool budget (avg KB/call vs call frequency with disable recommendations), and agentic workflow tools — structured systems like Superpowers, Get Shit Done (GSD), and Spec-Kit that bring tools, subagents, and multi-step workflows to reduce context overhead and prevent context rot. When no workflow tools are detected, the analysis gives personalized recommendations based on session characteristics.
 
 ```
 "Analyse my current session"
