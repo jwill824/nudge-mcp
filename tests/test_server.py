@@ -11,13 +11,14 @@ from fastmcp.client import Client
 from fastmcp.client.transports import FastMCPTransport
 
 from server import (
-    mcp, fmt, _matches_tool, _avg, _tok_per_turn,
+    mcp, fmt, _matches_tool,
     load_copilot_sessions, load_copilot_session_events,
     _analyze_session_events, _format_session_analysis, _find_active_session_id,
     _get_gh_token, _get_gh_username, _copilot_premium_usage,
     _record_copilot_spend, _copilot_budget_forecast, _copilot_tool_impact,
     _tool_impact, _copilot_behavior_report,
 )
+from core.claude import _avg, _tok_per_turn
 import server as _server
 
 
@@ -338,7 +339,7 @@ def test_tool_impact_low_sample_disclaimer(fake_csv):
 
 
 def test_tool_impact_no_disclaimer_when_sufficient(monkeypatch):
-    import server as _srv
+    import core.claude
     # Build 10 sessions all using "Read"
     rows = [
         {
@@ -351,7 +352,7 @@ def test_tool_impact_no_disclaimer_when_sufficient(monkeypatch):
         }
         for i in range(10)
     ]
-    monkeypatch.setattr(_srv, "load_csv", lambda: rows)
+    monkeypatch.setattr(core.claude, "load_csv", lambda: rows)
     result = _tool_impact({"tool": "Read"})
     assert "⚠️  Low sample size" not in result
 
