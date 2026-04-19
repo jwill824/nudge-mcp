@@ -17,6 +17,7 @@ Tools:
   copilot_behavior_report     — Cross-session pattern analysis: recurring inefficiencies and actionable recommendations
   copilot_premium_usage       — Fetch live premium request usage from the GitHub API for the current month
   record_copilot_spend        — Manually record actual Copilot overage spend for a month
+  copilot_budget_forecast     — Forecast end-of-month spend and show waste savings from fixing inefficiencies
 """
 
 import sys
@@ -34,7 +35,8 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
-from datetime import date, datetime, timezone
+import calendar
+from datetime import date, datetime, timedelta, timezone
 from glob import glob
 from pathlib import Path
 from typing import Literal, Optional
@@ -777,6 +779,22 @@ def record_copilot_spend(amount: float, month: Optional[str] = None) -> str:
         month: Month in YYYY-MM format. Defaults to current month.
     """
     return _record_copilot_spend({"amount": amount, "month": month})
+
+
+@mcp.tool
+def copilot_budget_forecast(month: Optional[str] = None) -> str:
+    """Forecast end-of-month Copilot spend and estimate savings from fixing inefficiencies.
+
+    Uses burn rate from recorded spend + session history to project end-of-month cost.
+    Analyses behavioral waste (low batching, bash overuse, vague prompts) and shows how
+    fixing each issue would offset the projected spend.
+
+    Requires record_copilot_spend and configure_subscription (overage_budget) to be set.
+
+    Args:
+        month: Month in YYYY-MM format. Defaults to current month.
+    """
+    return _copilot_budget_forecast({"month": month})
 
 
 def _session_report(args: dict) -> str:
@@ -1589,6 +1607,216 @@ def _copilot_behavior_report(args: dict) -> str:
     else:
         lines.append("✅  No major behavioural patterns to flag.")
 
+    return "\n".join(lines)
+
+
+def _copilot_budget_forecast(args: dict) -> str:
+    month = args.get("month") or date.today().strftime("%Y-%m")
+
+    try:
+        month_dt = datetime.strptime(month, "%Y-%m")
+    except ValueError:
+        return f"Invalid month format: '{month}'. Use YYYY-MM."
+
+    sessions = load_copilot_sessions()
+    month_sessions = [s for s in sessions if s["date"].startswith(month)]
+
+    if not month_sessions:
+        return f"No Copilot CLI session data found for {month}."
+
+    cfg = _config.load()
+    overage_budget = cfg.get("copilot_overage_budget", 0.0)
+    recorded_spend = cfg.get("copilot_spend_history", {}).get(month)
+
+    if recorded_spend is None:
+        return (
+            f"No recorded spend for {month}. "
+            "Run record_copilot_spend first to enable budget forecasting."
+        )
+    if overage_budget <= 0:
+        return (
+            "No overage budget configured. "
+            "Run configure_subscription with overage_budget to enable forecasting."
+        )
+
+    # Calendar math
+    today = date.today()
+    days_in_month = calendar.monthrange(month_dt.year, month_dt.month)[1]
+    is_current_month = (month_dt.year == today.year and month_dt.month == today.month)
+    days_elapsed = today.day if is_current_month else days_in_month
+    days_remaining = (days_in_month - today.day) if is_current_month else 0
+
+    total_turns = sum(s["turns"] for s in month_sessions)
+    n_sessions = len(month_sessions)
+
+    # Burn rate
+    daily_spend = recorded_spend / days_elapsed if days_elapsed > 0 else 0.0
+    daily_turns = total_turns / days_elapsed if days_elapsed > 0 else 0.0
+    daily_sessions = n_sessions / days_elapsed if days_elapsed > 0 else 0.0
+
+    # Linear projection to end of month
+    projected_turns = total_turns + daily_turns * days_remaining
+    projected_spend = recorded_spend + daily_spend * days_remaining
+
+    # Budget exhaustion date
+    if daily_spend > 0 and recorded_spend < overage_budget and is_current_month:
+        remaining_budget = overage_budget - recorded_spend
+        days_to_exhaustion = remaining_budget / daily_spend
+        exhaustion_date = today + timedelta(days=days_to_exhaustion)
+        if exhaustion_date.month > today.month or exhaustion_date.year > today.year:
+            exhaustion_str = "within budget ✅"
+        else:
+            exhaustion_str = exhaustion_date.strftime("~%b %d")
+    elif recorded_spend >= overage_budget:
+        exhaustion_str = "already exceeded ⚠️"
+    else:
+        exhaustion_str = "n/a"
+
+    # Behavior waste analysis — re-analyze each month session from events
+    analyses = []
+    session_ids = {s["session_id"] for s in month_sessions}
+    if COPILOT_SESSIONS_PATH.exists():
+        for session_dir in sorted(COPILOT_SESSIONS_PATH.iterdir()):
+            if session_dir.name not in session_ids:
+                continue
+            events_file = session_dir / "events.jsonl"
+            if not events_file.exists():
+                continue
+            events = load_copilot_session_events(events_file)
+            if events:
+                a = _analyze_session_events(events)
+                if a:
+                    analyses.append(a)
+
+    TARGET_BATCHING = 60.0
+    cost_per_turn = recorded_spend / total_turns if total_turns > 0 else 0.0
+
+    waste_turns_batching = 0
+    waste_turns_bash = 0
+    waste_turns_vague = 0
+
+    if analyses:
+        n_analyzed = len(analyses)
+
+        # Low batching: each % below 60% target → ~0.5% of turns are "extra" serial calls
+        batch_vals = [
+            a["batching_pct"] for a in analyses
+            if (a["single_tool_turns"] + a["multi_tool_turns"]) > 0
+        ]
+        avg_batching = sum(batch_vals) / len(batch_vals) if batch_vals else TARGET_BATCHING
+        if avg_batching < TARGET_BATCHING:
+            batching_gap = TARGET_BATCHING - avg_batching
+            waste_turns_batching = int(total_turns * batching_gap / 100 * 0.5)
+
+        # Bash overuse: sessions >50% bash run ~10% longer due to context bloat
+        bash_heavy_count = sum(
+            1 for a in analyses if a["bash_pct"] > 50 and a["bash_count"] >= 3
+        )
+        if bash_heavy_count > 0:
+            avg_turns_per_session = total_turns / n_analyzed
+            waste_turns_bash = int(bash_heavy_count * avg_turns_per_session * 0.10)
+
+        # Vague prompts: each vague session adds ~1.5 clarification turns
+        vague_count = sum(1 for a in analyses if a["vague_prompts"])
+        waste_turns_vague = int(vague_count * 1.5)
+
+    total_waste_turns = waste_turns_batching + waste_turns_bash + waste_turns_vague
+    waste_spend = total_waste_turns * cost_per_turn
+
+    # Optimized projection: apply scaled waste savings over remaining days
+    if days_elapsed > 0 and days_remaining > 0:
+        daily_waste_spend = waste_spend / days_elapsed
+        optimized_projected_spend = projected_spend - (daily_waste_spend * days_remaining)
+    else:
+        optimized_projected_spend = projected_spend
+
+    # --- Format output ---
+    pct_used = recorded_spend / overage_budget * 100
+    filled = min(20, int(pct_used / 5))
+    bar = "█" * filled + "░" * (20 - filled)
+    over_under = projected_spend - overage_budget
+    forecast_icon = "✅" if projected_spend <= overage_budget else "⚠️"
+
+    lines = [
+        f"## Copilot Budget Forecast — {month}",
+        "",
+        f"Current spend:      ${recorded_spend:.2f} / ${overage_budget:.2f}  "
+        f"({pct_used:.0f}%)  [{bar}]",
+        f"Days elapsed:       {days_elapsed} / {days_in_month}",
+        "",
+        "### Burn Rate",
+        f"  ${daily_spend:.2f}/day  |  {daily_turns:.0f} turns/day  "
+        f"|  {daily_sessions:.1f} sessions/day",
+        "",
+    ]
+
+    if is_current_month:
+        lines += [
+            "### Linear Projection (to end of month)",
+            f"  Est. end-of-month turns:   ~{int(projected_turns):,}",
+            f"  Est. end-of-month spend:   ~${projected_spend:.2f}  {forecast_icon}",
+        ]
+        if projected_spend > overage_budget:
+            lines.append(f"  Over budget by:            ~${over_under:.2f}")
+        else:
+            lines.append(f"  Headroom remaining:        ~${-over_under:.2f}")
+        lines.append(f"  Budget exhaustion:         {exhaustion_str}")
+        lines.append("")
+
+    if total_waste_turns > 0:
+        div57 = "─" * 57
+        lines += [
+            "### Behavior Waste (estimated this month)",
+            f"  {'Behavior':<35} {'Extra turns':>11}  {'Est. $':>8}",
+            f"  {div57}",
+        ]
+        if waste_turns_batching > 0:
+            lines.append(
+                f"  {'Low batching (target 60%)':<35} "
+                f"{waste_turns_batching:>+11}    "
+                f"~${waste_turns_batching * cost_per_turn:.2f}"
+            )
+        if waste_turns_bash > 0:
+            lines.append(
+                f"  {'Bash overuse (>50% bash)':<35} "
+                f"{waste_turns_bash:>+11}    "
+                f"~${waste_turns_bash * cost_per_turn:.2f}"
+            )
+        if waste_turns_vague > 0:
+            lines.append(
+                f"  {'Vague prompts (+1.5 turns each)':<35} "
+                f"{waste_turns_vague:>+11}    "
+                f"~${waste_turns_vague * cost_per_turn:.2f}"
+            )
+        lines += [
+            f"  {div57}",
+            f"  {'Total estimated waste':<35} "
+            f"{total_waste_turns:>+11}    ~${waste_spend:.2f}",
+            "",
+        ]
+
+        if is_current_month and days_remaining > 0:
+            opt_icon = "✅" if optimized_projected_spend <= overage_budget else "⚠️"
+            opt_diff = optimized_projected_spend - overage_budget
+            lines += [
+                "### Optimized Projection (if issues fixed)",
+                f"  Est. end-of-month spend:   ~${optimized_projected_spend:.2f}  {opt_icon}",
+            ]
+            if optimized_projected_spend <= overage_budget:
+                lines.append(
+                    f"  Would stay within budget   (${-opt_diff:.2f} headroom)"
+                )
+            else:
+                lines.append(f"  Still over budget by:      ~${opt_diff:.2f}")
+            lines.append("")
+    else:
+        lines.append("✅ No significant behavior waste detected this month.")
+        lines.append("")
+
+    lines.append(
+        "Note: Waste models are approximate (batching gap × 0.5, bash-heavy × 10%,\n"
+        "      vague prompts × 1.5 turns). Actual savings may vary."
+    )
     return "\n".join(lines)
 
 

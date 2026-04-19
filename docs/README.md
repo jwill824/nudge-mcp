@@ -243,6 +243,39 @@ Requires a fine-grained PAT (or `gh auth login`) with **Plan (read)** permission
 
 ---
 
+### `record_copilot_spend`
+
+Manually record your actual Copilot overage spend for a month (from the GitHub billing UI). Used when the live API is inaccessible (org/enterprise-managed plans). The recorded amount is displayed in `copilot_monthly_summary` and used for budget forecasting.
+
+```
+"Record my Copilot spend of $18.00 for April 2026"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `amount` | float | Actual overage spend in USD. |
+| `month` | string | Month in YYYY-MM format. Defaults to current month. |
+
+---
+
+### `copilot_budget_forecast`
+
+Forecast end-of-month Copilot overage spend using your current burn rate, and estimate how much you could save by fixing behavioural inefficiencies (low batching, bash overuse, vague prompts).
+
+Requires `record_copilot_spend` and `configure_subscription` (with `overage_budget`) to be set first.
+
+```
+"Forecast my Copilot budget for this month"
+"How much will I spend by end of April at this rate?"
+"How much would I save if I fixed my batching habits?"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `month` | string | Month in YYYY-MM format. Defaults to current month. |
+
+---
+
 ## CLI Tools
 
 ### Session report

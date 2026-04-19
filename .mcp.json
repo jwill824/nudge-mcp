@@ -2,8 +2,8 @@
   "mcpServers": {
     "scrooge": {
       "type": "stdio",
-      "command": "/Users/jeff.williams/.local/bin/python3.12",
-      "args": ["/Users/jeff.williams/Developer/personal/scrooge/server.py"]
+      "command": "/opt/homebrew/bin/uv",
+      "args": ["run", "--project", "/Users/jeff.williams/Developer/personal/scrooge", "python", "/Users/jeff.williams/Developer/personal/scrooge/server.py"]
     }
   }
 }

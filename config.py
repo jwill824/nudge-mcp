@@ -12,6 +12,7 @@ Priority (highest to lowest):
 Use load() to read, update(**kwargs) to write specific keys.
 """
 
+import copy
 import json
 import os
 from pathlib import Path
@@ -42,7 +43,7 @@ _ENV_MAP = [
 
 def load() -> dict:
     """Return merged config: defaults → config.json → env vars."""
-    cfg = {**DEFAULTS}
+    cfg = copy.deepcopy(DEFAULTS)
     if CONFIG_PATH.exists():
         try:
             with open(CONFIG_PATH) as f:

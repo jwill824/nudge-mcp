@@ -15,7 +15,7 @@ from server import (
     load_copilot_sessions, load_copilot_session_events,
     _analyze_session_events, _format_session_analysis, _find_active_session_id,
     _get_gh_token, _get_gh_username, _copilot_premium_usage,
-    _record_copilot_spend,
+    _record_copilot_spend, _copilot_budget_forecast,
 )
 import server as _server
 
@@ -159,7 +159,7 @@ def test_tok_per_turn_zero_turns_fallback():
 
 async def test_list_tools_count(client):
     tools = await client.list_tools()
-    assert len(tools) == 11
+    assert len(tools) == 12
 
 
 async def test_list_tools_names(client):
@@ -177,6 +177,7 @@ async def test_list_tools_names(client):
         "copilot_behavior_report",
         "copilot_premium_usage",
         "record_copilot_spend",
+        "copilot_budget_forecast",
     }
 
 
@@ -882,3 +883,145 @@ def test_record_copilot_spend_defaults_to_current_month(tmp_path, monkeypatch):
 
     result = _record_copilot_spend({"amount": 5.0})
     assert date.today().strftime("%Y-%m") in result
+
+
+# ---------------------------------------------------------------------------
+# _copilot_budget_forecast unit tests
+# ---------------------------------------------------------------------------
+
+def test_copilot_budget_forecast_no_recorded_spend(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+    _cfg.save({**_cfg.DEFAULTS, "copilot_overage_budget": 25.0})
+
+    # Patch load_copilot_sessions to return something
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+        {"session_id": "s1", "date": "2026-04-01 10:00", "turns": 10,
+         "output_tokens": 5000, "model": "claude-sonnet-4.6",
+         "project": "proj", "duration_min": 5},
+    ])
+
+    result = _copilot_budget_forecast({"month": "2026-04"})
+    assert "record_copilot_spend" in result
+
+
+def test_copilot_budget_forecast_no_overage_budget(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+    _cfg.save({**_cfg.DEFAULTS, "copilot_spend_history": {"2026-04": 18.0}})
+
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+        {"session_id": "s1", "date": "2026-04-01 10:00", "turns": 10,
+         "output_tokens": 5000, "model": "claude-sonnet-4.6",
+         "project": "proj", "duration_min": 5},
+    ])
+
+    result = _copilot_budget_forecast({"month": "2026-04"})
+    assert "overage budget" in result.lower()
+
+
+def test_copilot_budget_forecast_invalid_month():
+    result = _copilot_budget_forecast({"month": "April-2026"})
+    assert "Invalid month" in result
+
+
+def test_copilot_budget_forecast_no_sessions(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [])
+
+    result = _copilot_budget_forecast({"month": "2026-04"})
+    assert "No Copilot CLI session data" in result
+
+
+def test_copilot_budget_forecast_shows_projection(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+    from datetime import date
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+    _cfg.save({
+        **_cfg.DEFAULTS,
+        "copilot_overage_budget": 25.0,
+        "copilot_spend_history": {"2026-04": 18.0},
+    })
+
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+        {"session_id": "s1", "date": "2026-04-01 10:00", "turns": 40,
+         "output_tokens": 100_000, "model": "claude-sonnet-4.6",
+         "project": "proj", "duration_min": 30},
+    ])
+    # No events to analyze (sessions dir absent or empty) — waste section omitted
+    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path / "nonexistent")
+
+    result = _copilot_budget_forecast({"month": "2026-04"})
+    assert "Burn Rate" in result
+    assert "18.00" in result
+    assert "25.00" in result
+
+
+def test_copilot_budget_forecast_waste_section(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+    _cfg.save({
+        **_cfg.DEFAULTS,
+        "copilot_overage_budget": 25.0,
+        "copilot_spend_history": {"2026-04": 18.0},
+    })
+
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+        {"session_id": "s1", "date": "2026-04-01 10:00", "turns": 40,
+         "output_tokens": 100_000, "model": "claude-sonnet-4.6",
+         "project": "proj", "duration_min": 30},
+    ])
+
+    # Stub _analyze_session_events to return a bash-heavy, low-batching session
+    def fake_analyze(events):
+        return {
+            "vague_prompts": True,
+            "batching_pct": 20.0,
+            "single_tool_turns": 8,
+            "multi_tool_turns": 2,
+            "bash_pct": 60.0,
+            "bash_count": 5,
+            "memory_used": False,
+            "memory_subjects": [],
+            "tool_name_counts": {"bash": 5, "view": 3},
+            "tool_result_sizes": {},
+            "tool_result_counts": {},
+            "heavy_context_tools": [],
+            "smart_tools_used": set(),
+        }
+
+    monkeypatch.setattr(_srv, "_analyze_session_events", fake_analyze)
+
+    # Create a fake session dir with a dummy events.jsonl
+    session_dir = tmp_path / "s1"
+    session_dir.mkdir()
+    (session_dir / "events.jsonl").write_text('{"type":"session.start"}\n')
+    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+    monkeypatch.setattr(_srv, "load_copilot_session_events", lambda p: [{"type": "session.start"}])
+
+    result = _copilot_budget_forecast({"month": "2026-04"})
+    assert "Behavior Waste" in result
+    assert "Total estimated waste" in result
+
