@@ -30,15 +30,12 @@ sys.path.insert(0, os.path.join(_HERE, "lib"))
 # Add this directory for pricing.py
 sys.path.insert(0, _HERE)
 
-import csv
 import json
-import re
 import subprocess
 import urllib.error
 import urllib.request
 import calendar
-from datetime import date, datetime, timedelta, timezone
-from glob import glob
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -47,10 +44,8 @@ from fastmcp import FastMCP
 import config as _config
 
 from core.loaders import (
-    CSV_PATH,
     COPILOT_SESSIONS_PATH,
     fmt,
-    load_csv,
     load_copilot_sessions,
     _find_active_session_id,
     load_copilot_session_events,

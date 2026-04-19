@@ -11,16 +11,14 @@ Responsibilities:
 import json
 import re
 import subprocess
-import calendar
-from datetime import date, datetime
+from datetime import date
 from glob import glob
 from pathlib import Path
-from typing import Optional
 
 import config as _config
 from pricing import LIST_PRICES, CLAUDE_PLANS
 
-from core.loaders import CSV_PATH, load_csv, fmt
+from core.loaders import load_csv, fmt
 
 
 def _session_report(args: dict) -> str:
@@ -95,7 +93,7 @@ def _monthly_summary(args: dict) -> str:
         return f"No session data found for {month}."
 
     try:
-        from pricing import estimate_cost, CLAUDE_PLANS, LIST_PRICES
+        from pricing import estimate_cost
         cfg = _config.load()
         discount      = cfg.get("discount_factor", 0.5868)
         claude_budget = cfg.get("claude_monthly_budget", 400.0)
@@ -170,7 +168,7 @@ def _monthly_summary(args: dict) -> str:
 
 
 def _calibrate(args: dict) -> str:
-    import subprocess, sys as _sys
+    import sys as _sys
     actual = args["actual_billed"]
     month = args.get("month")
 
