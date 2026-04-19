@@ -1570,9 +1570,12 @@ def _get_gh_token() -> str | None:
 
 def _get_gh_username(token: str) -> str | None:
     """Return the GitHub username from env var, config, gh CLI, or the API."""
-    username = os.environ.get("GITHUB_USER") or os.environ.get("GH_USER")
-    if username:
-        return username
+    # GH_USER / GITHUB_USER often contain an email — only use if it looks like
+    # a login (no @ sign).
+    for env_var in ("GITHUB_USER", "GH_USER"):
+        val = os.environ.get(env_var, "")
+        if val and "@" not in val:
+            return val
     username = _config.load().get("github_username")
     if username:
         return username
