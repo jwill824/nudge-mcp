@@ -12,12 +12,12 @@ from fastmcp.client.transports import FastMCPTransport
 
 from server import (
     mcp, fmt, _matches_tool,
-    load_copilot_sessions, load_copilot_session_events,
-    _analyze_session_events, _format_session_analysis, _find_active_session_id,
     _get_gh_token, _get_gh_username, _copilot_premium_usage,
     _record_copilot_spend, _copilot_budget_forecast, _copilot_tool_impact,
     _tool_impact, _copilot_behavior_report,
 )
+from core.loaders import load_copilot_sessions, load_copilot_session_events, _find_active_session_id
+from core.analysis import _analyze_session_events, _format_session_analysis
 from core.claude import _avg, _tok_per_turn
 import server as _server
 
@@ -960,7 +960,6 @@ async def test_copilot_behavior_report_has_sections(client):
 def test_copilot_behavior_report_low_sample_disclaimer(tmp_path, monkeypatch):
     import server as _srv
     import core.loaders
-    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
     monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
 
     # Create 3 sessions (below threshold of 10)
@@ -981,7 +980,6 @@ def test_copilot_behavior_report_low_sample_disclaimer(tmp_path, monkeypatch):
 def test_copilot_behavior_report_no_disclaimer_when_sufficient(tmp_path, monkeypatch):
     import server as _srv
     import core.loaders
-    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
     monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
 
     # Create 10 sessions (at threshold)
@@ -1216,7 +1214,8 @@ def test_copilot_budget_forecast_no_recorded_spend(tmp_path, monkeypatch):
     _cfg.save({**_cfg.DEFAULTS, "copilot_overage_budget": 25.0})
 
     # Patch load_copilot_sessions to return something
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [
         {"session_id": "s1", "date": "2026-04-01 10:00", "turns": 10,
          "output_tokens": 5000, "model": "claude-sonnet-4.6",
          "project": "proj", "duration_min": 5},
@@ -1235,7 +1234,8 @@ def test_copilot_budget_forecast_no_overage_budget(tmp_path, monkeypatch):
     monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
     _cfg.save({**_cfg.DEFAULTS, "copilot_spend_history": {"2026-04": 18.0}})
 
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [
         {"session_id": "s1", "date": "2026-04-01 10:00", "turns": 10,
          "output_tokens": 5000, "model": "claude-sonnet-4.6",
          "project": "proj", "duration_min": 5},
@@ -1258,7 +1258,8 @@ def test_copilot_budget_forecast_no_sessions(tmp_path, monkeypatch):
     monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
     monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
 
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [])
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [])
 
     result = _copilot_budget_forecast({"month": "2026-04"})
     assert "No Copilot CLI session data" in result
@@ -1278,13 +1279,15 @@ def test_copilot_budget_forecast_shows_projection(tmp_path, monkeypatch):
         "copilot_spend_history": {"2026-04": 18.0},
     })
 
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [
         {"session_id": "s1", "date": "2026-04-01 10:00", "turns": 40,
          "output_tokens": 100_000, "model": "claude-sonnet-4.6",
          "project": "proj", "duration_min": 30},
     ])
     # No events to analyze (sessions dir absent or empty) — waste section omitted
-    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path / "nonexistent")
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path / "nonexistent")
 
     result = _copilot_budget_forecast({"month": "2026-04"})
     assert "Burn Rate" in result
@@ -1305,7 +1308,8 @@ def test_copilot_budget_forecast_waste_section(tmp_path, monkeypatch):
         "copilot_spend_history": {"2026-04": 18.0},
     })
 
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [
         {"session_id": "s1", "date": "2026-04-01 10:00", "turns": 40,
          "output_tokens": 100_000, "model": "claude-sonnet-4.6",
          "project": "proj", "duration_min": 30},
@@ -1329,14 +1333,17 @@ def test_copilot_budget_forecast_waste_section(tmp_path, monkeypatch):
             "smart_tools_used": set(),
         }
 
-    monkeypatch.setattr(_srv, "_analyze_session_events", fake_analyze)
+    import core.analysis
+    monkeypatch.setattr(core.analysis, "_analyze_session_events", fake_analyze)
 
     # Create a fake session dir with a dummy events.jsonl
     session_dir = tmp_path / "s1"
     session_dir.mkdir()
     (session_dir / "events.jsonl").write_text('{"type":"session.start"}\n')
-    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
-    monkeypatch.setattr(_srv, "load_copilot_session_events", lambda p: [{"type": "session.start"}])
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_session_events", lambda p: [{"type": "session.start"}])
 
     result = _copilot_budget_forecast({"month": "2026-04"})
     assert "Behavior Waste" in result
@@ -1359,19 +1366,21 @@ def test_copilot_budget_forecast_low_days_disclaimer(tmp_path, monkeypatch):
     })
 
     # Simulate being on day 3 of the month
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [
         {"session_id": "s1", "date": "2026-04-01 10:00", "turns": 10,
          "output_tokens": 30_000, "model": "claude-sonnet-4.6",
          "project": "proj", "duration_min": 10},
     ])
-    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path / "nonexistent")
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path / "nonexistent")
 
     class FakeDate(date):
         @classmethod
         def today(cls):
             return date(2026, 4, 3)
 
-    with patch("server.date", FakeDate):
+    with patch("core.copilot.date", FakeDate):
         result = _copilot_budget_forecast({"month": "2026-04"})
     assert "⚠️  Low burn rate confidence" in result
 
@@ -1391,20 +1400,22 @@ def test_copilot_budget_forecast_no_disclaimer_after_7_days(tmp_path, monkeypatc
         "copilot_spend_history": {"2026-04": 10.0},
     })
 
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [
         {"session_id": f"s{i}", "date": f"2026-04-{i+1:02d} 10:00", "turns": 10,
          "output_tokens": 30_000, "model": "claude-sonnet-4.6",
          "project": "proj", "duration_min": 10}
         for i in range(7)
     ])
-    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path / "nonexistent")
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path / "nonexistent")
 
     class FakeDate(date):
         @classmethod
         def today(cls):
             return date(2026, 4, 8)
 
-    with patch("server.date", FakeDate):
+    with patch("core.copilot.date", FakeDate):
         result = _copilot_budget_forecast({"month": "2026-04"})
     assert "⚠️  Low burn rate confidence" not in result
 
@@ -1420,19 +1431,22 @@ def test_copilot_tool_impact_no_tool():
 
 def test_copilot_tool_impact_no_sessions(monkeypatch):
     import server as _srv
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [])
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [])
     result = _copilot_tool_impact({"tool": "serena"})
     assert "No Copilot CLI session data found" in result
 
 
 def test_copilot_tool_impact_no_matching_sessions(tmp_path, monkeypatch):
     import server as _srv
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [
         {"session_id": "abc12345", "date": "2026-04-01 10:00", "turns": 10,
          "output_tokens": 50_000, "model": "claude-sonnet-4.6",
          "project": "proj", "duration_min": 15},
     ])
-    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
     result = _copilot_tool_impact({"tool": "serena"})
     assert "No Copilot CLI sessions found" in result
     assert "serena" in result
@@ -1456,7 +1470,8 @@ def test_copilot_tool_impact_with_matching_session(tmp_path, monkeypatch):
          "output_tokens": 80_000, "model": "claude-sonnet-4.6",
          "project": "proj-b", "duration_min": 20},
     ]
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: sessions)
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: sessions)
 
     # Session aaa00001 uses serena; bbb00002 does not
     session_dir = tmp_path / "aaa00001"
@@ -1466,7 +1481,6 @@ def test_copilot_tool_impact_with_matching_session(tmp_path, monkeypatch):
         "data": {"toolName": "mcp__serena__find_symbol", "arguments": {}, "toolCallId": "t1"},
     })
     (session_dir / "events.jsonl").write_text(serena_event + "\n")
-    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
     monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
 
     result = _copilot_tool_impact({"tool": "serena", "month": "2026-04"})
@@ -1492,7 +1506,8 @@ def test_copilot_tool_impact_low_sample_disclaimer_absent_when_sufficient(tmp_pa
          "project": "proj", "duration_min": 10}
         for i in range(10)
     ]
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: sessions)
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: sessions)
 
     for s in sessions:
         session_dir = tmp_path / s["session_id"]
@@ -1502,7 +1517,8 @@ def test_copilot_tool_impact_low_sample_disclaimer_absent_when_sufficient(tmp_pa
             "data": {"toolName": "mcp__serena__find_symbol", "arguments": {}, "toolCallId": "t1"},
         })
         (session_dir / "events.jsonl").write_text(event + "\n")
-    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
     import core.loaders
     monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
 
@@ -1512,7 +1528,8 @@ def test_copilot_tool_impact_low_sample_disclaimer_absent_when_sufficient(tmp_pa
 
 def test_copilot_tool_impact_invalid_month(monkeypatch):
     import server as _srv
-    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [
         {"session_id": "aaa00001", "date": "2026-04-01 10:00", "turns": 5,
          "output_tokens": 10_000, "model": "claude-sonnet-4.6",
          "project": "proj", "duration_min": 5},
