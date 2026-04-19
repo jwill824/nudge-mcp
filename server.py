@@ -287,6 +287,22 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
                 bash_antipatterns.append(msg)
                 seen_ap.add(msg)
 
+    # --- Smart code intelligence tools ---
+    # Detect serena (LSP symbol lookup), ck (semantic search), ast-grep (structural search).
+    # Both "ast-grep" (hyphen) and "ast_grep" (underscore) are checked since MCP servers
+    # may register the tool name with either convention.
+    _SMART_TOOLS = {
+        "serena":   "Serena (LSP symbol lookup)",
+        "ck":       "ck (semantic search)",
+        "ast-grep": "ast-grep (structural search)",
+        "ast_grep": "ast-grep (structural search)",
+    }
+    smart_tools_used = list({
+        label for key, label in _SMART_TOOLS.items()
+        if any(key in (e.get("data", {}).get("toolName", "") or "").lower()
+               for e in tool_starts)
+    })
+
     # --- Memory utilisation ---
     memory_events = [
         e for e in tool_starts
@@ -374,6 +390,7 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         "heavy_context_tools": heavy_context_tools,
         "tool_result_sizes": tool_result_sizes,
         "tool_result_counts": tool_result_counts,
+        "smart_tools_used":  smart_tools_used,
     }
 
 
@@ -472,6 +489,23 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
             "Large MCP/tool responses consume context quickly — consider scoping queries or summarising results."
         )
         lines.append("")
+
+    # 6. Smart code intelligence tools
+    view_heavy = any(t["name"] == "view" for t in heavy)
+    smart = analysis.get("smart_tools_used", [])
+    lines.append("### Code Intelligence Tools")
+    if smart:
+        lines.append(f"✅  Smart tools active: {', '.join(smart)}")
+    elif view_heavy:
+        lines.append("⚠️  Heavy `view` usage detected but no smart code tools used.")
+        lines.append("   Consider: Serena (LSP symbol lookup), ck (semantic search), ast-grep (structural search)")
+        suggestions.append(
+            "Replace whole-file view calls with Serena (symbol lookup) or ck (semantic search) "
+            "to cut context cost per read."
+        )
+    else:
+        lines.append("   No smart tool usage detected (Serena / ck / ast-grep).")
+    lines.append("")
 
     # Summary
     lines.append("### Summary")
@@ -1473,6 +1507,17 @@ def _copilot_behavior_report(args: dict) -> str:
         recs.append(
             f"📦 Context: Heavy tool responses detected (e.g. {top}). "
             "Consider scoping queries or summarising large results to preserve context."
+        )
+    # Flag sessions with heavy view but no smart code tools
+    sessions_view_heavy_no_smart = sum(
+        1 for a in analyses
+        if any(t["name"] == "view" for t in a.get("heavy_context_tools", []))
+        and not a.get("smart_tools_used")
+    )
+    if sessions_view_heavy_no_smart > 0:
+        recs.append(
+            f"🔍 Smart Tools: {sessions_view_heavy_no_smart}/{n} sessions had heavy `view` usage "
+            "without Serena, ck, or ast-grep. Install a code intelligence MCP to cut context cost."
         )
 
     if recs:
