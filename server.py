@@ -10,6 +10,7 @@ Tools:
   monthly_summary             — Total cost and token breakdown for a Claude Code billing month
   calibrate_pricing           — Update the discount factor from actual billing
   tool_impact                 — Compare efficiency metrics for sessions that used a specific tool vs those that didn't
+  copilot_tool_impact         — Same as tool_impact but for Copilot CLI sessions (output tokens/turn + est. cost)
   copilot_session_report      — Recent Copilot CLI sessions with output token metrics
   copilot_monthly_summary     — Monthly output token summary for Copilot CLI
   configure_subscription      — Update active Claude or Copilot plan and monthly budget
@@ -655,6 +656,23 @@ def tool_impact(tool: str, month: Optional[str] = None) -> str:
 
 
 @mcp.tool
+def copilot_tool_impact(tool: str, month: Optional[str] = None) -> str:
+    """Analyze how a specific tool affects Copilot CLI session efficiency.
+
+    Scans Copilot CLI session history to compare output tokens/turn and estimated cost
+    between sessions that used the tool and those that didn't.
+    Useful for measuring the real-world impact of tools like 'serena', 'ck',
+    'ast-grep', 'view', 'bash', or any MCP tool.
+    Provide the tool name as you'd refer to it naturally, e.g. 'serena', 'ck', 'bash'.
+
+    Args:
+        tool: Tool name to analyze. Case-insensitive substring match against MCP tool names.
+        month: Limit analysis to a specific month, e.g. '2026-04'. Defaults to all history.
+    """
+    return _copilot_tool_impact({"tool": tool, "month": month})
+
+
+@mcp.tool
 def copilot_session_report(
     last: int = 20,
     today: bool = False,
@@ -1189,6 +1207,172 @@ def _tool_impact(args: dict) -> str:
 
     lines.append("")
     lines.append("▼ = improvement (lower tokens/cost)  |  ▲ = regression  |  Delta = % change vs sessions without")
+
+    return "\n".join(lines)
+
+
+def _copilot_tool_impact(args: dict) -> str:
+    query = args.get("tool", "").strip()
+    month = args.get("month")
+
+    if not query:
+        return "Please provide a tool name to analyze."
+
+    sessions = load_copilot_sessions()
+    if not sessions:
+        return "No Copilot CLI session data found."
+
+    if month:
+        sessions = [s for s in sessions if s["date"].startswith(month)]
+        if not sessions:
+            return f"No Copilot CLI session data found for {month}."
+
+    # For each session, reload its events to get precise tool call counts
+    # (load_copilot_sessions only stores a set of tool names, not counts)
+    sessions_with: list[tuple[dict, int]] = []
+    sessions_without: list[dict] = []
+
+    for s in sessions:
+        sid = s["session_id"]
+        # Find the full session dir by matching the 8-char prefix
+        session_dir = None
+        if COPILOT_SESSIONS_PATH.exists():
+            for d in COPILOT_SESSIONS_PATH.iterdir():
+                if d.name.startswith(sid) or d.name[:8] == sid:
+                    session_dir = d
+                    break
+
+        tool_calls = 0
+        if session_dir:
+            events_file = session_dir / "events.jsonl"
+            if events_file.exists():
+                events = load_copilot_session_events(session_dir.name)
+                tool_calls = sum(
+                    1 for e in events
+                    if e.get("type") == "tool.execution_start"
+                    and _matches_tool(query, e.get("data", {}).get("toolName", ""),
+                                     e.get("data", {}).get("arguments", {}))
+                )
+
+        if tool_calls > 0:
+            sessions_with.append((s, tool_calls))
+        else:
+            sessions_without.append(s)
+
+    if not sessions_with:
+        period = f" in {month}" if month else ""
+        return (
+            f"No Copilot CLI sessions found that used '{query}'{period}.\n\n"
+            f"Tip: The tool name must match how it appears in session events — "
+            f"e.g. 'serena', 'ck', 'bash', 'view', or a substring of an MCP tool name."
+        )
+
+    with_sessions = [s for s, _ in sessions_with]
+    total_calls = sum(c for _, c in sessions_with)
+
+    def _avg_metric(sess_list: list[dict], key: str) -> float:
+        vals = [s[key] for s in sess_list if s.get(key) is not None]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    def _out_per_turn(s: dict) -> float:
+        turns = s["turns"] or 1
+        return s["output_tokens"] / turns
+
+    def avgs(sess_list: list[dict]) -> Optional[dict]:
+        if not sess_list:
+            return None
+        opt_vals = [_out_per_turn(s) for s in sess_list]
+        return {
+            "n":           len(sess_list),
+            "out_per_turn": sum(opt_vals) / len(opt_vals),
+            "turns":       _avg_metric(sess_list, "turns"),
+            "duration":    _avg_metric(sess_list, "duration_min"),
+            "total_output": sum(s["output_tokens"] for s in sess_list),
+        }
+
+    wa = avgs(with_sessions)
+    wo = avgs(sessions_without)
+
+    # Cost estimates: use recorded spend / total turns as cost-per-turn proxy
+    cfg = _config.load()
+    month_key = month or date.today().strftime("%Y-%m")
+    recorded_spend = cfg.get("copilot_spend_history", {}).get(month_key)
+    all_month_sessions = load_copilot_sessions()
+    if month:
+        all_month_sessions = [s for s in all_month_sessions if s["date"].startswith(month)]
+    total_turns_month = sum(s["turns"] for s in all_month_sessions) or 1
+    cost_per_turn = (recorded_spend / total_turns_month) if recorded_spend else None
+
+    div = "─" * 68
+    period_label = f" ({month})" if month else ""
+    lines = [
+        f"## Copilot Tool Impact — '{query}'{period_label}",
+        "",
+        f"Scanned {len(sessions_with) + len(sessions_without)} sessions"
+        + (f" in {month}" if month else ""),
+        "",
+    ]
+
+    h_metric  = f"{'Metric':<26}"
+    h_with    = f"{'With ' + query:>14}"
+    h_without = f"{'Without ' + query:>14}"
+    h_delta   = f"{'Delta':>12}"
+    lines += [div, f"{h_metric} {h_with} {h_without} {h_delta}", div]
+
+    def row_line(label, v_with, v_without, fmt_fn, lower_is_better=True):
+        if v_without and v_without != 0:
+            delta = ((v_with - v_without) / v_without) * 100
+            arrow = "▼" if (delta < 0) == lower_is_better else "▲"
+            delta_str = f"{arrow} {abs(delta):.1f}%"
+        else:
+            delta_str = "n/a"
+        wo_str = fmt_fn(v_without) if v_without is not None else "n/a"
+        return f"{label:<26} {fmt_fn(v_with):>14} {wo_str:>14} {delta_str:>12}"
+
+    lines.append(row_line("Sessions",          wa["n"],            wo["n"] if wo else None,
+                          lambda v: str(int(v)), lower_is_better=False))
+    lines.append(row_line("Avg output/turn",   wa["out_per_turn"], wo["out_per_turn"] if wo else None,
+                          lambda v: fmt(int(v)), lower_is_better=True))
+    lines.append(row_line("Avg turns/session", wa["turns"],        wo["turns"] if wo else None,
+                          lambda v: f"{v:.1f}",  lower_is_better=False))
+    lines.append(row_line("Avg duration (min)", wa["duration"],    wo["duration"] if wo else None,
+                          lambda v: f"{v:.1f}",  lower_is_better=False))
+
+    if cost_per_turn and wo:
+        avg_cost_with    = wa["turns"] * cost_per_turn
+        avg_cost_without = wo["turns"] * cost_per_turn
+        lines.append(row_line("Est. avg cost/session", avg_cost_with, avg_cost_without,
+                              lambda v: f"${v:.3f}", lower_is_better=True))
+
+    lines += [div, ""]
+
+    avg_calls = total_calls / len(sessions_with)
+    lines.append(f"Total '{query}' calls across {len(sessions_with)} sessions: {total_calls:,}  (avg {avg_calls:.1f}/session)")
+    lines.append("")
+
+    if cost_per_turn and wo and sessions_without:
+        out_per_turn_delta = wo["out_per_turn"] - wa["out_per_turn"]
+        if out_per_turn_delta > 0:
+            # Project monthly savings: if all sessions used the tool
+            total_sessions_month = len(all_month_sessions)
+            avg_turns_wo = wo["turns"]
+            savings_per_session = (out_per_turn_delta / wo["out_per_turn"]) * avg_turns_wo * cost_per_turn
+            monthly_savings = savings_per_session * total_sessions_month
+            lines.append(f"Est. monthly savings (if used in all sessions):  ~${monthly_savings:.2f}")
+            lines.append("")
+
+    top = sorted(sessions_with, key=lambda x: x[1], reverse=True)[:5]
+    lines.append(f"Top sessions by '{query}' call count:")
+    lines.append(f"  {'Date':<17} {'Project':<12} {'Calls':>6}  {'OutT/T':>7}  {'Turns':>5}")
+    for s, calls in top:
+        lines.append(
+            f"  {s['date']:<17} {s['project']:<12} {calls:>6}  "
+            f"{fmt(int(_out_per_turn(s))):>7}  {s['turns']:>5}"
+        )
+
+    lines.append("")
+    lines.append("▼ = improvement (lower output/cost)  |  ▲ = regression  |  Delta = % change vs sessions without")
+    lines.append("Note: Only output tokens tracked. Cost estimate uses recorded_spend / total turns as proxy.")
 
     return "\n".join(lines)
 

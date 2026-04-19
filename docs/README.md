@@ -243,6 +243,23 @@ Requires a fine-grained PAT (or `gh auth login`) with **Plan (read)** permission
 
 ---
 
+### `copilot_tool_impact`
+
+Analyze how a specific tool affects Copilot CLI session efficiency — comparing output tokens/turn and estimated cost between sessions that used the tool and those that didn't. The Copilot equivalent of `tool_impact`. Useful for measuring the real-world impact of tools like Serena, ck, ast-grep, or any MCP tool once you start using them.
+
+```
+"Show the impact of serena on my Copilot sessions"
+"How much does ck reduce my output tokens per turn?"
+"Compare bash-heavy vs non-bash-heavy sessions"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `tool` | string | Tool name to analyze. Case-insensitive, substring match. |
+| `month` | string | Month in YYYY-MM format. Defaults to all history. |
+
+---
+
 ### `record_copilot_spend`
 
 Manually record your actual Copilot overage spend for a month (from the GitHub billing UI). Used when the live API is inaccessible (org/enterprise-managed plans). The recorded amount is displayed in `copilot_monthly_summary` and used for budget forecasting.

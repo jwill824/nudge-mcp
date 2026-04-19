@@ -15,7 +15,7 @@ from server import (
     load_copilot_sessions, load_copilot_session_events,
     _analyze_session_events, _format_session_analysis, _find_active_session_id,
     _get_gh_token, _get_gh_username, _copilot_premium_usage,
-    _record_copilot_spend, _copilot_budget_forecast,
+    _record_copilot_spend, _copilot_budget_forecast, _copilot_tool_impact,
 )
 import server as _server
 
@@ -159,7 +159,7 @@ def test_tok_per_turn_zero_turns_fallback():
 
 async def test_list_tools_count(client):
     tools = await client.list_tools()
-    assert len(tools) == 12
+    assert len(tools) == 13
 
 
 async def test_list_tools_names(client):
@@ -178,6 +178,7 @@ async def test_list_tools_names(client):
         "copilot_premium_usage",
         "record_copilot_spend",
         "copilot_budget_forecast",
+        "copilot_tool_impact",
     }
 
 
@@ -1025,3 +1026,77 @@ def test_copilot_budget_forecast_waste_section(tmp_path, monkeypatch):
     assert "Behavior Waste" in result
     assert "Total estimated waste" in result
 
+
+# ---------------------------------------------------------------------------
+# _copilot_tool_impact unit tests
+# ---------------------------------------------------------------------------
+
+def test_copilot_tool_impact_no_tool():
+    result = _copilot_tool_impact({"tool": ""})
+    assert "Please provide" in result
+
+
+def test_copilot_tool_impact_no_sessions(monkeypatch):
+    import server as _srv
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [])
+    result = _copilot_tool_impact({"tool": "serena"})
+    assert "No Copilot CLI session data found" in result
+
+
+def test_copilot_tool_impact_no_matching_sessions(tmp_path, monkeypatch):
+    import server as _srv
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+        {"session_id": "abc12345", "date": "2026-04-01 10:00", "turns": 10,
+         "output_tokens": 50_000, "model": "claude-sonnet-4.6",
+         "project": "proj", "duration_min": 15},
+    ])
+    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+    result = _copilot_tool_impact({"tool": "serena"})
+    assert "No Copilot CLI sessions found" in result
+    assert "serena" in result
+
+
+def test_copilot_tool_impact_with_matching_session(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+    _cfg.save({**_cfg.DEFAULTS, "copilot_spend_history": {"2026-04": 18.0}})
+
+    sessions = [
+        {"session_id": "aaa00001", "date": "2026-04-01 10:00", "turns": 10,
+         "output_tokens": 30_000, "model": "claude-sonnet-4.6",
+         "project": "proj-a", "duration_min": 10},
+        {"session_id": "bbb00002", "date": "2026-04-02 11:00", "turns": 20,
+         "output_tokens": 80_000, "model": "claude-sonnet-4.6",
+         "project": "proj-b", "duration_min": 20},
+    ]
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: sessions)
+
+    # Session aaa00001 uses serena; bbb00002 does not
+    session_dir = tmp_path / "aaa00001"
+    session_dir.mkdir()
+    serena_event = json.dumps({
+        "type": "tool.execution_start",
+        "data": {"toolName": "mcp__serena__find_symbol", "arguments": {}, "toolCallId": "t1"},
+    })
+    (session_dir / "events.jsonl").write_text(serena_event + "\n")
+    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+
+    result = _copilot_tool_impact({"tool": "serena", "month": "2026-04"})
+    assert "Copilot Tool Impact" in result
+    assert "serena" in result
+    assert "Sessions" in result
+
+
+def test_copilot_tool_impact_invalid_month(monkeypatch):
+    import server as _srv
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+        {"session_id": "aaa00001", "date": "2026-04-01 10:00", "turns": 5,
+         "output_tokens": 10_000, "model": "claude-sonnet-4.6",
+         "project": "proj", "duration_min": 5},
+    ])
+    result = _copilot_tool_impact({"tool": "bash", "month": "2099-12"})
+    assert "No Copilot CLI session data found for" in result
