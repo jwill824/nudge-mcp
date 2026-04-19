@@ -50,7 +50,6 @@ import config as _config
 from core.loaders import (
     CSV_PATH,
     COPILOT_SESSIONS_PATH,
-    COPILOT_CONFIG_PATH,
     fmt,
     load_csv,
     load_copilot_sessions,

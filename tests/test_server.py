@@ -979,7 +979,9 @@ def test_copilot_behavior_report_low_sample_disclaimer(tmp_path, monkeypatch):
 
 def test_copilot_behavior_report_no_disclaimer_when_sufficient(tmp_path, monkeypatch):
     import server as _srv
+    import core.loaders
     monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
 
     # Create 10 sessions (at threshold)
     for i in range(10):
@@ -1500,6 +1502,8 @@ def test_copilot_tool_impact_low_sample_disclaimer_absent_when_sufficient(tmp_pa
         })
         (session_dir / "events.jsonl").write_text(event + "\n")
     monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
 
     result = _copilot_tool_impact({"tool": "serena", "month": "2026-04"})
     assert "⚠️  Low sample size" not in result

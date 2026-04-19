@@ -10,10 +10,7 @@ Responsibilities:
 
 import csv
 import json
-import subprocess
-from collections import Counter
 from datetime import datetime
-from glob import glob
 from pathlib import Path
 from typing import Optional
 
