@@ -57,13 +57,14 @@ SAMPLE_CSV_ROWS = [
 @pytest.fixture
 def fake_csv(tmp_path, monkeypatch):
     """Write sample CSV rows to a temp file and patch CSV_PATH."""
+    import core.loaders
     csv_file = tmp_path / "sessions.csv"
     if SAMPLE_CSV_ROWS:
         with open(csv_file, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=SAMPLE_CSV_ROWS[0].keys())
             writer.writeheader()
             writer.writerows(SAMPLE_CSV_ROWS)
-    monkeypatch.setattr(_server, "CSV_PATH", csv_file)
+    monkeypatch.setattr(core.loaders, "CSV_PATH", csv_file)
     return csv_file
 
 
@@ -957,7 +958,9 @@ async def test_copilot_behavior_report_has_sections(client):
 
 def test_copilot_behavior_report_low_sample_disclaimer(tmp_path, monkeypatch):
     import server as _srv
+    import core.loaders
     monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
 
     # Create 3 sessions (below threshold of 10)
     for i in range(3):
@@ -1434,6 +1437,7 @@ def test_copilot_tool_impact_no_matching_sessions(tmp_path, monkeypatch):
 
 def test_copilot_tool_impact_with_matching_session(tmp_path, monkeypatch):
     import server as _srv
+    import core.loaders
     import config as _cfg
 
     config_file = tmp_path / "config.json"
@@ -1460,6 +1464,7 @@ def test_copilot_tool_impact_with_matching_session(tmp_path, monkeypatch):
     })
     (session_dir / "events.jsonl").write_text(serena_event + "\n")
     monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
 
     result = _copilot_tool_impact({"tool": "serena", "month": "2026-04"})
     assert "Copilot Tool Impact" in result
