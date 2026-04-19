@@ -16,6 +16,7 @@ from server import (
     _analyze_session_events, _format_session_analysis, _find_active_session_id,
     _get_gh_token, _get_gh_username, _copilot_premium_usage,
     _record_copilot_spend, _copilot_budget_forecast, _copilot_tool_impact,
+    _tool_impact, _copilot_behavior_report,
 )
 import server as _server
 
@@ -327,6 +328,31 @@ async def test_tool_impact_with_data_and_known_tool(client, fake_csv):
     text = _result_text(result)
     # "Read" appears in two of the three sample sessions
     assert "Read" in text or "Tool Impact" in text
+
+
+def test_tool_impact_low_sample_disclaimer(fake_csv):
+    # fake_csv has only 3 sessions; "Read" appears in 2 — below threshold of 10
+    result = _tool_impact({"tool": "Read"})
+    assert "⚠️  Low sample size" in result
+
+
+def test_tool_impact_no_disclaimer_when_sufficient(monkeypatch):
+    import server as _srv
+    # Build 10 sessions all using "Read"
+    rows = [
+        {
+            "date": f"2026-04-{i+1:02d} 10:00", "session_id": f"s{i:07d}",
+            "project": "proj", "input_tokens": "5000", "output_tokens": "1000",
+            "cache_read_tokens": "3000", "cache_creation_tokens": "500",
+            "total_tokens": "9500", "turns": "5", "duration_min": "10",
+            "est_cost_usd": "0.05", "cache_hit_pct": "60.0",
+            "tool_calls": "Read,Read", "model": "claude-sonnet-4.6",
+        }
+        for i in range(10)
+    ]
+    monkeypatch.setattr(_srv, "load_csv", lambda: rows)
+    result = _tool_impact({"tool": "Read"})
+    assert "⚠️  Low sample size" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -683,6 +709,44 @@ async def test_copilot_behavior_report_has_sections(client):
     assert has_report or has_no_data
 
 
+def test_copilot_behavior_report_low_sample_disclaimer(tmp_path, monkeypatch):
+    import server as _srv
+    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+
+    # Create 3 sessions (below threshold of 10)
+    for i in range(3):
+        session_dir = tmp_path / f"sess{i:07d}"
+        session_dir.mkdir()
+        events = [
+            json.dumps({"type": "session.start", "timestamp": f"2026-04-0{i+1}T10:00:00Z"}),
+            json.dumps({"type": "user.message", "data": {"content": "Do the thing"}}),
+            json.dumps({"type": "tool.execution_start", "data": {"toolName": "bash", "arguments": {}}}),
+        ]
+        (session_dir / "events.jsonl").write_text("\n".join(events) + "\n")
+
+    result = _copilot_behavior_report({"last": 10})
+    assert "⚠️  Low sample size" in result
+
+
+def test_copilot_behavior_report_no_disclaimer_when_sufficient(tmp_path, monkeypatch):
+    import server as _srv
+    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+
+    # Create 10 sessions (at threshold)
+    for i in range(10):
+        session_dir = tmp_path / f"sess{i:07d}"
+        session_dir.mkdir()
+        events = [
+            json.dumps({"type": "session.start", "timestamp": f"2026-04-{i+1:02d}T10:00:00Z"}),
+            json.dumps({"type": "user.message", "data": {"content": "Do the thing"}}),
+            json.dumps({"type": "tool.execution_start", "data": {"toolName": "bash", "arguments": {}}}),
+        ]
+        (session_dir / "events.jsonl").write_text("\n".join(events) + "\n")
+
+    result = _copilot_behavior_report({"last": 10})
+    assert "⚠️  Low sample size" not in result
+
+
 async def test_configure_subscription_plan_and_budget_override(client):
     """Plan + custom budget — budget should win."""
     result = await client.call_tool("configure_subscription", {
@@ -1025,6 +1089,72 @@ def test_copilot_budget_forecast_waste_section(tmp_path, monkeypatch):
     result = _copilot_budget_forecast({"month": "2026-04"})
     assert "Behavior Waste" in result
     assert "Total estimated waste" in result
+
+
+def test_copilot_budget_forecast_low_days_disclaimer(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+    from datetime import date
+    from unittest.mock import patch
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+    _cfg.save({
+        **_cfg.DEFAULTS,
+        "copilot_overage_budget": 25.0,
+        "copilot_spend_history": {"2026-04": 2.0},
+    })
+
+    # Simulate being on day 3 of the month
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+        {"session_id": "s1", "date": "2026-04-01 10:00", "turns": 10,
+         "output_tokens": 30_000, "model": "claude-sonnet-4.6",
+         "project": "proj", "duration_min": 10},
+    ])
+    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path / "nonexistent")
+
+    class FakeDate(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 4, 3)
+
+    with patch("server.date", FakeDate):
+        result = _copilot_budget_forecast({"month": "2026-04"})
+    assert "⚠️  Low burn rate confidence" in result
+
+
+def test_copilot_budget_forecast_no_disclaimer_after_7_days(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+    from datetime import date
+    from unittest.mock import patch
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+    _cfg.save({
+        **_cfg.DEFAULTS,
+        "copilot_overage_budget": 25.0,
+        "copilot_spend_history": {"2026-04": 10.0},
+    })
+
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: [
+        {"session_id": f"s{i}", "date": f"2026-04-{i+1:02d} 10:00", "turns": 10,
+         "output_tokens": 30_000, "model": "claude-sonnet-4.6",
+         "project": "proj", "duration_min": 10}
+        for i in range(7)
+    ])
+    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path / "nonexistent")
+
+    class FakeDate(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 4, 8)
+
+    with patch("server.date", FakeDate):
+        result = _copilot_budget_forecast({"month": "2026-04"})
+    assert "⚠️  Low burn rate confidence" not in result
 
 
 # ---------------------------------------------------------------------------
