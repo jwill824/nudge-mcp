@@ -732,6 +732,61 @@ def test_format_session_analysis_shows_no_skills_message():
     assert "No agentic workflow tools detected" in output
 
 
+def test_analyze_session_events_tracks_total_context_kb():
+    events = _make_events(tool_calls_per_turn=[["view"]])
+    events.append({
+        "type": "tool.execution_complete",
+        "data": {"toolCallId": "tc00", "result": {"content": "x" * 10_000}},
+        "timestamp": events[-1]["timestamp"],
+    })
+    result = _analyze_session_events(events)
+    assert result["total_context_kb"] > 0
+
+
+def test_analyze_session_events_detects_repeated_view_reads():
+    events = _make_events(
+        tool_calls_per_turn=[["view"], ["view"], ["view"]],
+        user_prompts=["turn 1", "turn 2", "turn 3"],
+    )
+    # Inject path argument into each view start event
+    for e in events:
+        if e.get("type") == "tool.execution_start" and e["data"].get("toolName") == "view":
+            e["data"]["arguments"] = {"path": "/project/server.py"}
+    result = _analyze_session_events(events)
+    assert "/project/server.py" in result["repeated_view_paths"]
+    assert result["redundant_reads"] == 2  # 3 reads, 2 are redundant
+    assert result["repeat_view_pct"] == 67  # 2/3 = 66.7% → 67%
+
+
+def test_format_session_analysis_shows_context_rot_warning():
+    # Build a session with 5 reads of the same file → triggers rot threshold (>=3 redundant, >=15%)
+    prompts = [f"turn {i}" for i in range(5)]
+    events = _make_events(
+        tool_calls_per_turn=[["view"]] * 5,
+        user_prompts=prompts,
+    )
+    for e in events:
+        if e.get("type") == "tool.execution_start" and e["data"].get("toolName") == "view":
+            e["data"]["arguments"] = {"path": "/project/server.py"}
+    analysis = _analyze_session_events(events)
+    output = _format_session_analysis(analysis)
+    assert "Context rot signal" in output
+    assert "server.py" in output
+
+
+def test_format_session_analysis_shows_high_volume_warning():
+    events = _make_events(tool_calls_per_turn=[["view"]])
+    # 250 KB result → should trigger high volume warning
+    events.append({
+        "type": "tool.execution_complete",
+        "data": {"toolCallId": "tc00", "result": {"content": "x" * 250_000}},
+        "timestamp": events[-1]["timestamp"],
+    })
+    analysis = _analyze_session_events(events)
+    output = _format_session_analysis(analysis)
+    assert "context window filling" in output or "very high context load" in output
+
+
 # ---------------------------------------------------------------------------
 # _find_active_session_id() — unit test
 # ---------------------------------------------------------------------------

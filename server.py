@@ -37,6 +37,7 @@ import subprocess
 import urllib.error
 import urllib.request
 import calendar
+from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from glob import glob
 from pathlib import Path
@@ -395,6 +396,26 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
                 "total_kb": round(total_size / 1024, 1),
             })
 
+    # --- Total context volume and context rot detection ---
+    total_context_kb = round(sum(tool_result_sizes.values()) / 1024, 1)
+
+    # Repeated view reads of the same file path — strongest detectable context rot signal.
+    # When the model re-reads a file it already saw, earlier content has likely been evicted
+    # or crowded out, forcing the re-read to recover lost context.
+    view_paths: list[str] = []
+    for e in tool_starts:
+        if e.get("data", {}).get("toolName") == "view":
+            path = e.get("data", {}).get("arguments", {}).get("path", "")
+            if path:
+                view_paths.append(path)
+    view_path_counts = Counter(view_paths)
+    # Files viewed 2+ times (path → count)
+    repeated_view_paths = {p: c for p, c in view_path_counts.items() if c >= 2}
+    # Number of redundant reads (each re-read beyond the first)
+    redundant_reads = sum(c - 1 for c in repeated_view_paths.values())
+    total_view_reads = len(view_paths)
+    repeat_view_pct = round(redundant_reads / total_view_reads * 100) if total_view_reads else 0
+
     # --- MCP tool budget analysis ---
     # Built-in tools have simple lowercase names with no hyphens or MCP prefixes
     _BUILTIN_TOOLS = {
@@ -503,6 +524,11 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         "heavy_context_tools": heavy_context_tools,
         "tool_result_sizes": tool_result_sizes,
         "tool_result_counts": tool_result_counts,
+        "total_context_kb":  total_context_kb,
+        "repeated_view_paths": repeated_view_paths,
+        "redundant_reads":   redundant_reads,
+        "total_view_reads":  total_view_reads,
+        "repeat_view_pct":   repeat_view_pct,
         "smart_tools_used":  smart_tools_used,
         "mcp_tool_analysis": mcp_tool_analysis,
         "skill_tools_used":  skill_tools_used,
@@ -591,33 +617,92 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
         )
     lines.append("")
 
-    # 5. MCP / tool context cost
+    # 5. MCP / tool context cost + volume + rot
     heavy = analysis.get("heavy_context_tools", [])
+    total_kb = analysis.get("total_context_kb", 0.0)
+    redundant = analysis.get("redundant_reads", 0)
+    total_views = analysis.get("total_view_reads", 0)
+    repeat_pct = analysis.get("repeat_view_pct", 0)
+    repeated = analysis.get("repeated_view_paths", {})
+
+    lines.append("### Context Volume & Rot")
+
+    # Total volume
+    if total_kb >= 500:
+        lines.append(f"🔴 {total_kb} KB of tool results loaded — very high context load.")
+        lines.append(
+            "   Use /compact, start a new session, or delegate remaining work to a subagent "
+            "(Superpowers / GSD) to avoid severe quality degradation."
+        )
+        suggestions.append(
+            f"Very high context load ({total_kb} KB) — use /compact or start a new session to prevent context rot."
+        )
+    elif total_kb >= 200:
+        lines.append(f"⚠️  {total_kb} KB of tool results loaded — context window filling up.")
+        lines.append(
+            "   Scope tool queries more narrowly, summarise large results, "
+            "or use Serena/ck to replace whole-file reads."
+        )
+        suggestions.append(
+            f"High context load ({total_kb} KB) — scope queries more narrowly and avoid re-reading files."
+        )
+    elif total_kb > 0:
+        lines.append(f"✅  {total_kb} KB of tool results loaded — within healthy range.")
+
+    # Per-tool breakdown (heavy tools)
     if heavy:
-        lines.append("### Context Cost (Heavy Tools)")
-        lines.append("   Tool results > 2 KB average — these consume significant context each call:")
+        lines.append("   Tool results > 2 KB average:")
         for t in sorted(heavy, key=lambda x: -x["avg_kb"]):
             lines.append(
                 f"   • {t['name']:<35} {t['calls']}x  avg {t['avg_kb']} KB  total {t['total_kb']} KB"
             )
-        suggestions.append(
-            "Large MCP/tool responses consume context quickly — consider scoping queries or summarising results."
+        if total_kb < 200:
+            suggestions.append(
+                "Large tool responses consume context — consider scoping queries or summarising results."
+            )
+
+    # Context rot: repeated view reads
+    if redundant >= 3 and repeat_pct >= 15:
+        top = sorted(repeated.items(), key=lambda x: -x[1])[:5]
+        top_str = ", ".join(f"{Path(p).name} ×{c}" for p, c in top)
+        lines.append(
+            f"⚠️  Context rot signal: {redundant} redundant file read(s) "
+            f"({repeat_pct}% of view calls re-read already-seen files)."
         )
-        lines.append("")
+        lines.append(f"   Top offenders: {top_str}")
+        lines.append(
+            "   Re-reads indicate the model lost earlier context. Use Serena (symbol lookup), "
+            "ck (semantic search), or /compact to recover."
+        )
+        suggestions.append(
+            f"Context rot detected — {redundant} redundant file reads ({repeat_pct}%). "
+            "Use Serena or ck instead of re-reading whole files, or run /compact."
+        )
+    elif redundant > 0:
+        top = sorted(repeated.items(), key=lambda x: -x[1])[:3]
+        top_str = ", ".join(f"{Path(p).name} ×{c}" for p, c in top)
+        lines.append(f"   {redundant} file(s) re-read: {top_str}")
+
+    if not heavy and total_kb < 200 and redundant < 3:
+        lines.append("   No context rot signals detected.")
+
+    lines.append("")
 
     # 6. Smart code intelligence tools
     view_heavy = any(t["name"] == "view" for t in heavy)
+    context_rot = redundant >= 3 and repeat_pct >= 15
     smart = analysis.get("smart_tools_used", [])
     lines.append("### Code Intelligence Tools")
     if smart:
         lines.append(f"✅  Smart tools active: {', '.join(smart)}")
-    elif view_heavy:
+    elif view_heavy or context_rot:
         lines.append("⚠️  Heavy `view` usage detected but no smart code tools used.")
         lines.append("   Consider: Serena (LSP symbol lookup), ck (semantic search), ast-grep (structural search)")
-        suggestions.append(
-            "Replace whole-file view calls with Serena (symbol lookup) or ck (semantic search) "
-            "to cut context cost per read."
-        )
+        if not any("Serena" in s for s in suggestions):
+            suggestions.append(
+                "Replace whole-file view calls with Serena (symbol lookup) or ck (semantic search) "
+                "to cut context cost per read."
+            )
     else:
         lines.append("   No smart tool usage detected (Serena / ck / ast-grep).")
     lines.append("")
