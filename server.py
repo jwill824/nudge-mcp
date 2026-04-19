@@ -1147,13 +1147,23 @@ def _tool_impact(args: dict) -> str:
     wa = avgs(with_rows)
     wo = avgs(sessions_without)
 
+    MIN_SESSIONS_FOR_RELIABLE_DATA = 10
+    low_sample_warning = (
+        f"⚠️  Low sample size: only {len(sessions_with)} session(s) used '{query}' "
+        f"(recommend ≥{MIN_SESSIONS_FOR_RELIABLE_DATA} for reliable results). "
+        f"Use the tool consistently across more sessions and re-run this report."
+        if len(sessions_with) < MIN_SESSIONS_FOR_RELIABLE_DATA else ""
+    )
+
     lines = [
         f"## Tool Impact Analysis — '{query}'",
         f"",
         f"Scanned {len(sessions_with) + len(sessions_without)} sessions"
         + (f" in {month}" if month else ""),
-        f"",
     ]
+    if low_sample_warning:
+        lines += ["", low_sample_warning]
+    lines.append("")
 
     # Comparison table
     h_metric  = f"{'Metric':<22}"
@@ -1207,15 +1217,6 @@ def _tool_impact(args: dict) -> str:
 
     lines.append("")
     lines.append("▼ = improvement (lower tokens/cost)  |  ▲ = regression  |  Delta = % change vs sessions without")
-
-    MIN_SESSIONS_FOR_RELIABLE_DATA = 10
-    if len(sessions_with) < MIN_SESSIONS_FOR_RELIABLE_DATA:
-        lines.append("")
-        lines.append(
-            f"⚠️  Low sample size: only {len(sessions_with)} session(s) used '{query}' "
-            f"(recommend ≥{MIN_SESSIONS_FOR_RELIABLE_DATA} for reliable results). "
-            f"Use the tool consistently across more sessions and re-run this report."
-        )
 
     return "\n".join(lines)
 
@@ -1312,6 +1313,14 @@ def _copilot_tool_impact(args: dict) -> str:
     total_turns_month = sum(s["turns"] for s in all_month_sessions) or 1
     cost_per_turn = (recorded_spend / total_turns_month) if recorded_spend else None
 
+    MIN_SESSIONS_FOR_RELIABLE_DATA = 10
+    low_sample_warning = (
+        f"⚠️  Low sample size: only {len(sessions_with)} session(s) used '{query}' "
+        f"(recommend ≥{MIN_SESSIONS_FOR_RELIABLE_DATA} for reliable results). "
+        f"Use the tool consistently across more sessions and re-run this report."
+        if len(sessions_with) < MIN_SESSIONS_FOR_RELIABLE_DATA else ""
+    )
+
     div = "─" * 68
     period_label = f" ({month})" if month else ""
     lines = [
@@ -1319,8 +1328,10 @@ def _copilot_tool_impact(args: dict) -> str:
         "",
         f"Scanned {len(sessions_with) + len(sessions_without)} sessions"
         + (f" in {month}" if month else ""),
-        "",
     ]
+    if low_sample_warning:
+        lines += ["", low_sample_warning]
+    lines.append("")
 
     h_metric  = f"{'Metric':<26}"
     h_with    = f"{'With ' + query:>14}"
@@ -1382,15 +1393,6 @@ def _copilot_tool_impact(args: dict) -> str:
     lines.append("")
     lines.append("▼ = improvement (lower output/cost)  |  ▲ = regression  |  Delta = % change vs sessions without")
     lines.append("Note: Only output tokens tracked. Cost estimate uses recorded_spend / total turns as proxy.")
-
-    MIN_SESSIONS_FOR_RELIABLE_DATA = 10
-    if len(sessions_with) < MIN_SESSIONS_FOR_RELIABLE_DATA:
-        lines.append("")
-        lines.append(
-            f"⚠️  Low sample size: only {len(sessions_with)} session(s) used '{query}' "
-            f"(recommend ≥{MIN_SESSIONS_FOR_RELIABLE_DATA} for reliable results). "
-            f"Use the tool consistently across more sessions and re-run this report."
-        )
 
     return "\n".join(lines)
 
@@ -1725,11 +1727,21 @@ def _copilot_behavior_report(args: dict) -> str:
     def signal(bad: int, total: int, threshold_pct: float = 30.0) -> str:
         return "✅ Good" if (bad / total * 100) <= threshold_pct else "⚠️  Needs attention"
 
+    MIN_SESSIONS_FOR_RELIABLE_BEHAVIOR = 10
     period_label = f" ({month})" if month else ""
     div = "─" * 65
     lines = [
         f"## Copilot Behaviour Report — Last {n} Sessions{period_label}",
         "",
+    ]
+    if n < MIN_SESSIONS_FOR_RELIABLE_BEHAVIOR:
+        lines += [
+            f"⚠️  Low sample size: only {n} session(s) analyzed "
+            f"(recommend ≥{MIN_SESSIONS_FOR_RELIABLE_BEHAVIOR} for reliable behavior patterns). "
+            f"Results may not reflect your typical habits.",
+            "",
+        ]
+    lines += [
         f"{'Metric':<38} {'Value':>7}   Signal",
         div,
         f"{'Vague prompt sessions':<38} {vague_n:>3}/{n:<3}   {signal(vague_n, n)}",
@@ -1808,15 +1820,6 @@ def _copilot_behavior_report(args: dict) -> str:
             lines.append(f"  {r}")
     else:
         lines.append("✅  No major behavioural patterns to flag.")
-
-    MIN_SESSIONS_FOR_RELIABLE_BEHAVIOR = 10
-    if n < MIN_SESSIONS_FOR_RELIABLE_BEHAVIOR:
-        lines.append("")
-        lines.append(
-            f"⚠️  Low sample size: only {n} session(s) analyzed "
-            f"(recommend ≥{MIN_SESSIONS_FOR_RELIABLE_BEHAVIOR} for reliable behavior patterns). "
-            f"Results may not reflect your typical habits."
-        )
 
     return "\n".join(lines)
 
@@ -1948,12 +1951,24 @@ def _copilot_budget_forecast(args: dict) -> str:
     over_under = projected_spend - overage_budget
     forecast_icon = "✅" if projected_spend <= overage_budget else "⚠️"
 
+    MIN_DAYS_FOR_RELIABLE_FORECAST = 7
+    low_days_warning = (
+        f"⚠️  Low burn rate confidence: only {days_elapsed} day(s) of data "
+        f"(recommend ≥{MIN_DAYS_FOR_RELIABLE_FORECAST} days for a reliable projection). "
+        f"Early-month forecasts are highly sensitive to day-to-day variance."
+        if is_current_month and days_elapsed < MIN_DAYS_FOR_RELIABLE_FORECAST else ""
+    )
+
     lines = [
         f"## Copilot Budget Forecast — {month}",
         "",
         f"Current spend:      ${recorded_spend:.2f} / ${overage_budget:.2f}  "
         f"({pct_used:.0f}%)  [{bar}]",
         f"Days elapsed:       {days_elapsed} / {days_in_month}",
+    ]
+    if low_days_warning:
+        lines += ["", low_days_warning]
+    lines += [
         "",
         "### Burn Rate",
         f"  ${daily_spend:.2f}/day  |  {daily_turns:.0f} turns/day  "
@@ -2028,15 +2043,6 @@ def _copilot_budget_forecast(args: dict) -> str:
         "Note: Waste models are approximate (batching gap × 0.5, bash-heavy × 10%,\n"
         "      vague prompts × 1.5 turns). Actual savings may vary."
     )
-
-    MIN_DAYS_FOR_RELIABLE_FORECAST = 7
-    if is_current_month and days_elapsed < MIN_DAYS_FOR_RELIABLE_FORECAST:
-        lines.append("")
-        lines.append(
-            f"⚠️  Low burn rate confidence: only {days_elapsed} day(s) of data "
-            f"(recommend ≥{MIN_DAYS_FOR_RELIABLE_FORECAST} days for a reliable projection). "
-            f"Early-month forecasts are highly sensitive to day-to-day variance."
-        )
 
     return "\n".join(lines)
 
