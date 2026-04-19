@@ -1089,6 +1089,39 @@ def test_copilot_tool_impact_with_matching_session(tmp_path, monkeypatch):
     assert "Copilot Tool Impact" in result
     assert "serena" in result
     assert "Sessions" in result
+    assert "⚠️  Low sample size" in result
+
+
+def test_copilot_tool_impact_low_sample_disclaimer_absent_when_sufficient(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+    _cfg.save({**_cfg.DEFAULTS, "copilot_spend_history": {"2026-04": 18.0}})
+
+    # 10 sessions all using serena — should NOT show disclaimer
+    sessions = [
+        {"session_id": f"s{i:07d}", "date": f"2026-04-{i+1:02d} 10:00", "turns": 10,
+         "output_tokens": 30_000, "model": "claude-sonnet-4.6",
+         "project": "proj", "duration_min": 10}
+        for i in range(10)
+    ]
+    monkeypatch.setattr(_srv, "load_copilot_sessions", lambda: sessions)
+
+    for s in sessions:
+        session_dir = tmp_path / s["session_id"]
+        session_dir.mkdir()
+        event = json.dumps({
+            "type": "tool.execution_start",
+            "data": {"toolName": "mcp__serena__find_symbol", "arguments": {}, "toolCallId": "t1"},
+        })
+        (session_dir / "events.jsonl").write_text(event + "\n")
+    monkeypatch.setattr(_srv, "COPILOT_SESSIONS_PATH", tmp_path)
+
+    result = _copilot_tool_impact({"tool": "serena", "month": "2026-04"})
+    assert "⚠️  Low sample size" not in result
 
 
 def test_copilot_tool_impact_invalid_month(monkeypatch):

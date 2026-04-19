@@ -1374,6 +1374,15 @@ def _copilot_tool_impact(args: dict) -> str:
     lines.append("▼ = improvement (lower output/cost)  |  ▲ = regression  |  Delta = % change vs sessions without")
     lines.append("Note: Only output tokens tracked. Cost estimate uses recorded_spend / total turns as proxy.")
 
+    MIN_SESSIONS_FOR_RELIABLE_DATA = 10
+    if len(sessions_with) < MIN_SESSIONS_FOR_RELIABLE_DATA:
+        lines.append("")
+        lines.append(
+            f"⚠️  Low sample size: only {len(sessions_with)} session(s) used '{query}' "
+            f"(recommend ≥{MIN_SESSIONS_FOR_RELIABLE_DATA} for reliable results). "
+            f"Use the tool consistently across more sessions and re-run this report."
+        )
+
     return "\n".join(lines)
 
 
