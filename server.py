@@ -1248,6 +1248,11 @@ def _copilot_monthly_summary(args: dict) -> str:
         project_totals[s["project"]] = project_totals.get(s["project"], 0) + s["output_tokens"]
     top_projects = sorted(project_totals.items(), key=lambda x: x[1], reverse=True)[:5]
 
+    # Estimate premium requests: each assistant turn consumes one premium request.
+    # This is a proxy — free-quota models don't count, but it's the best we can
+    # derive from local session data without API access.
+    total_turns = sum(s["turns"] for s in month_sessions)
+
     lines = [f"## Copilot CLI Monthly Summary — {month}", ""]
 
     if overage_budget > 0:
@@ -1266,6 +1271,7 @@ def _copilot_monthly_summary(args: dict) -> str:
         "",
         f"Sessions:          {len(month_sessions)}",
         f"Output tokens:     {total_output:>15,}  ({fmt(total_output)})",
+        f"Est. premium requests used:  ~{total_turns:,}  (turns across {len(month_sessions)} sessions)",
         "",
         f"At API output rates (Sonnet 4.6):   ${equiv_api_cost:.2f}",
     ]
@@ -1289,6 +1295,7 @@ def _copilot_monthly_summary(args: dict) -> str:
     lines += [
         "",
         "Note: Input/cache tokens not tracked. API rate comparison uses output-only pricing.",
+        "      Premium request estimate = total turns (proxy; free-quota model turns not excluded).",
     ]
     return "\n".join(lines)
 
