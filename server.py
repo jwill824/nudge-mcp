@@ -16,6 +16,7 @@ Tools:
   analyze_copilot_session     — Analyze a session for inefficient prompts, poor tool batching, bash overuse, missing memory
   copilot_behavior_report     — Cross-session pattern analysis: recurring inefficiencies and actionable recommendations
   copilot_premium_usage       — Fetch live premium request usage from the GitHub API for the current month
+  record_copilot_spend        — Manually record actual Copilot overage spend for a month
 """
 
 import sys
@@ -762,6 +763,22 @@ def copilot_premium_usage(month: Optional[str] = None) -> str:
     return _copilot_premium_usage({"month": month})
 
 
+@mcp.tool
+def record_copilot_spend(amount: float, month: Optional[str] = None) -> str:
+    """Record actual Copilot overage spend for a month.
+
+    Use this when you can see your real spend in the GitHub billing UI but
+    the API isn't accessible (e.g. org/enterprise-managed plans).
+    The recorded amount is shown in copilot_monthly_summary alongside
+    your overage budget cap.
+
+    Args:
+        amount: Actual overage spend in USD (e.g. 17.72).
+        month: Month in YYYY-MM format. Defaults to current month.
+    """
+    return _record_copilot_spend({"amount": amount, "month": month})
+
+
 def _session_report(args: dict) -> str:
     rows = load_csv()
     if not rows:
@@ -1276,17 +1293,32 @@ def _copilot_monthly_summary(args: dict) -> str:
         f"At API output rates (Sonnet 4.6):   ${equiv_api_cost:.2f}",
     ]
 
+    recorded_spend = cfg.get("copilot_spend_history", {}).get(month)
+
     if total_budget > 0:
         savings = equiv_api_cost - total_budget
-        pct_used = min(equiv_api_cost / total_budget * 100, 999.9)
         lines.append(
             f"Subscription savings vs API:        ${savings:.2f}  "
             f"({'saves' if savings > 0 else 'costs'} vs pay-as-you-go)"
         )
         if overage_budget > 0:
-            filled = int(min(pct_used, 100) / 5)
-            bar = "█" * filled + "░" * (20 - filled)
-            lines.append(f"Budget utilization:                 {pct_used:.1f}%  [{bar}]")
+            if recorded_spend is not None:
+                # Use actual recorded spend for the overage bar
+                pct = (recorded_spend / overage_budget * 100)
+                filled = min(20, int(pct / 5))
+                bar = "█" * filled + "░" * (20 - filled)
+                remaining = max(0.0, overage_budget - recorded_spend)
+                lines += [
+                    "",
+                    f"Actual overage spend:               ${recorded_spend:.2f} / ${overage_budget:.2f}  "
+                    f"({pct:.1f}%)  [{bar}]",
+                    f"Remaining overage budget:           ${remaining:.2f}",
+                ]
+            else:
+                pct_used = min(equiv_api_cost / total_budget * 100, 999.9)
+                filled = int(min(pct_used, 100) / 5)
+                bar = "█" * filled + "░" * (20 - filled)
+                lines.append(f"Budget utilization (API est.):      {pct_used:.1f}%  [{bar}]")
 
     lines += ["", "Top projects by output tokens:"]
     for proj, toks in top_projects:
@@ -1296,6 +1328,7 @@ def _copilot_monthly_summary(args: dict) -> str:
         "",
         "Note: Input/cache tokens not tracked. API rate comparison uses output-only pricing.",
         "      Premium request estimate = total turns (proxy; free-quota model turns not excluded).",
+        "      Use record_copilot_spend to log actual overage spend from the GitHub billing UI.",
     ]
     return "\n".join(lines)
 
@@ -1556,6 +1589,37 @@ def _copilot_behavior_report(args: dict) -> str:
     else:
         lines.append("✅  No major behavioural patterns to flag.")
 
+    return "\n".join(lines)
+
+
+def _record_copilot_spend(args: dict) -> str:
+    amount = args.get("amount")
+    if amount is None or float(amount) < 0:
+        return "Invalid amount. Provide a non-negative USD value, e.g. 17.72."
+    amount = round(float(amount), 2)
+    month = args.get("month") or date.today().strftime("%Y-%m")
+    try:
+        datetime.strptime(month, "%Y-%m")
+    except ValueError:
+        return f"Invalid month format: '{month}'. Use YYYY-MM."
+
+    cfg = _config.load()
+    history: dict = cfg.get("copilot_spend_history", {})
+    history[month] = amount
+    _config.update(copilot_spend_history=history)
+
+    overage_budget = cfg.get("copilot_overage_budget", 0.0)
+    lines = [f"Recorded Copilot overage spend for {month}: ${amount:.2f}"]
+    if overage_budget > 0:
+        pct = amount / overage_budget * 100
+        filled = min(20, int(pct / 5))
+        bar = "█" * filled + "░" * (20 - filled)
+        remaining = max(0.0, overage_budget - amount)
+        lines.append(
+            f"Overage budget: ${amount:.2f} / ${overage_budget:.2f}  "
+            f"({pct:.1f}%)  [{bar}]"
+        )
+        lines.append(f"Remaining:      ${remaining:.2f}")
     return "\n".join(lines)
 
 

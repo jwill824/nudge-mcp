@@ -26,6 +26,7 @@ DEFAULTS: dict = {
     "copilot_monthly_budget":  10.0,
     "copilot_overage_budget":  0.0,
     "calibration_history":     [],
+    "copilot_spend_history":   {},
 }
 
 _ENV_MAP = [

@@ -15,6 +15,7 @@ from server import (
     load_copilot_sessions, load_copilot_session_events,
     _analyze_session_events, _format_session_analysis, _find_active_session_id,
     _get_gh_token, _get_gh_username, _copilot_premium_usage,
+    _record_copilot_spend,
 )
 import server as _server
 
@@ -158,7 +159,7 @@ def test_tok_per_turn_zero_turns_fallback():
 
 async def test_list_tools_count(client):
     tools = await client.list_tools()
-    assert len(tools) == 10
+    assert len(tools) == 11
 
 
 async def test_list_tools_names(client):
@@ -175,6 +176,7 @@ async def test_list_tools_names(client):
         "analyze_copilot_session",
         "copilot_behavior_report",
         "copilot_premium_usage",
+        "record_copilot_spend",
     }
 
 
@@ -823,3 +825,60 @@ def test_copilot_premium_usage_overage_budget(monkeypatch):
     result = _copilot_premium_usage({"month": "2026-04"})
     assert "40.0% used" in result
     assert "10.00" in result
+
+
+# ---------------------------------------------------------------------------
+# _record_copilot_spend unit tests
+# ---------------------------------------------------------------------------
+
+def test_record_copilot_spend_invalid_amount():
+    result = _record_copilot_spend({"amount": -5.0, "month": "2026-04"})
+    assert "Invalid amount" in result
+
+
+def test_record_copilot_spend_invalid_month():
+    result = _record_copilot_spend({"amount": 10.0, "month": "April-2026"})
+    assert "Invalid month" in result
+
+
+def test_record_copilot_spend_persists(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+
+    result = _record_copilot_spend({"amount": 17.72, "month": "2026-04"})
+    assert "17.72" in result
+    assert "2026-04" in result
+
+    cfg = _cfg.load()
+    assert cfg["copilot_spend_history"]["2026-04"] == 17.72
+
+
+def test_record_copilot_spend_shows_budget_bar(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+    _cfg.save({**_cfg.DEFAULTS, "copilot_overage_budget": 25.0})
+
+    result = _record_copilot_spend({"amount": 17.72, "month": "2026-04"})
+    assert "█" in result
+    assert "Remaining" in result
+
+
+def test_record_copilot_spend_defaults_to_current_month(tmp_path, monkeypatch):
+    import server as _srv
+    import config as _cfg
+    from datetime import date
+
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(_srv._config, "CONFIG_PATH", config_file)
+
+    result = _record_copilot_spend({"amount": 5.0})
+    assert date.today().strftime("%Y-%m") in result
