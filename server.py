@@ -345,3 +345,7 @@ def copilot_budget_forecast(month: Optional[str] = None) -> str:
     return _copilot_budget_forecast({"month": month})
 
 
+if __name__ == "__main__":
+    mcp.run()
+
+
