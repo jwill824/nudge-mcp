@@ -362,6 +362,70 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
                 "total_kb": round(total_size / 1024, 1),
             })
 
+    # --- MCP tool budget analysis ---
+    # Built-in tools have simple lowercase names with no hyphens or MCP prefixes
+    _BUILTIN_TOOLS = {
+        "bash", "view", "edit", "create", "grep", "glob", "report_intent",
+        "store_memory", "ask_user", "sql", "task", "read_bash", "write_bash",
+        "stop_bash", "list_bash", "read_agent", "list_agents", "write_agent",
+        "ide-get_selection", "ide-get_diagnostics", "fetch_copilot_cli_documentation",
+    }
+    mcp_tool_analysis: list[dict] = []
+    for name, total_size in tool_result_sizes.items():
+        if name in _BUILTIN_TOOLS:
+            continue
+        # Treat any non-builtin as an MCP tool
+        calls = tool_result_counts.get(name, 1)
+        avg_kb = round(total_size / calls / 1024, 1)
+        total_kb = round(total_size / 1024, 1)
+        # Recommendation logic
+        if avg_kb > 5 and calls < 3:
+            verdict = "⚠️  Low value, high cost — consider disabling"
+        elif avg_kb > 5:
+            verdict = "⚠️  High cost — scope queries more narrowly"
+        elif avg_kb > 2:
+            verdict = "💡 Moderate cost — monitor usage"
+        else:
+            verdict = "✅ Low cost"
+        mcp_tool_analysis.append({
+            "name":     name,
+            "calls":    calls,
+            "avg_kb":   avg_kb,
+            "total_kb": total_kb,
+            "verdict":  verdict,
+        })
+    mcp_tool_analysis.sort(key=lambda x: -x["avg_kb"])
+
+    # --- Session structure tools / skills ---
+    _SKILL_NAMES = {
+        "blog-writing-specialist", "find-skills", "customize-cloud-agent",
+        "superpowers", "get-shit-done", "get_shit_done", "spec-kit", "speckit",
+        "speckit-constitution", "speckit.constitution",
+    }
+    skill_tools_used: list[dict] = []
+    for e in tool_starts:
+        tool_name = e.get("data", {}).get("toolName", "")
+        args = e.get("data", {}).get("arguments", {})
+        # Detect via skill tool with a skill argument
+        if tool_name == "skill":
+            skill = args.get("skill", "")
+            if skill:
+                existing = next((s for s in skill_tools_used if s["name"] == skill), None)
+                if existing:
+                    existing["calls"] += 1
+                else:
+                    skill_tools_used.append({"name": skill, "calls": 1, "via": "skill tool"})
+        # Detect by tool name directly matching a known skill
+        else:
+            for s in _SKILL_NAMES:
+                if s in tool_name.lower():
+                    existing = next((x for x in skill_tools_used if x["name"] == tool_name), None)
+                    if existing:
+                        existing["calls"] += 1
+                    else:
+                        skill_tools_used.append({"name": tool_name, "calls": 1, "via": "direct"})
+                    break
+
     # --- Session metadata ---
     start_event = next((e for e in events if e.get("type") == "session.start"), None)
     cwd = start_event.get("data", {}).get("context", {}).get("cwd", "") if start_event else ""
@@ -399,6 +463,8 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         "tool_result_sizes": tool_result_sizes,
         "tool_result_counts": tool_result_counts,
         "smart_tools_used":  smart_tools_used,
+        "mcp_tool_analysis": mcp_tool_analysis,
+        "skill_tools_used":  skill_tools_used,
     }
 
 
@@ -513,6 +579,39 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
         )
     else:
         lines.append("   No smart tool usage detected (Serena / ck / ast-grep).")
+    lines.append("")
+
+    # 7. MCP tool budget
+    mcp_analysis = analysis.get("mcp_tool_analysis", [])
+    if mcp_analysis:
+        lines.append("### MCP Tool Budget")
+        lines.append(f"   {'Tool':<40} {'Calls':>5}  {'Avg KB':>6}  {'Total KB':>8}  Verdict")
+        lines.append(f"   {'─'*40} {'─'*5}  {'─'*6}  {'─'*8}  {'─'*30}")
+        for t in mcp_analysis:
+            lines.append(
+                f"   {t['name']:<40} {t['calls']:>5}  {t['avg_kb']:>6}  {t['total_kb']:>8}  {t['verdict']}"
+            )
+        disable_candidates = [t for t in mcp_analysis if "consider disabling" in t["verdict"]]
+        if disable_candidates:
+            names = ", ".join(t["name"] for t in disable_candidates)
+            suggestions.append(
+                f"MCP tools with high cost and low usage: {names}. "
+                "Disable in .mcp.json when not needed to reduce context overhead."
+            )
+        lines.append("")
+
+    # 8. Session structure tools / skills
+    skills = analysis.get("skill_tools_used", [])
+    lines.append("### Session Structure Tools")
+    if skills:
+        for s in skills:
+            lines.append(f"   ✅ {s['name']}  ({s['calls']}x)")
+    else:
+        lines.append(
+            "   No skills detected (superpowers, get-shit-done, spec-kit, etc.).\n"
+            "   Skills can reduce turns by providing structured workflows — "
+            "try /find-skills to discover available ones."
+        )
     lines.append("")
 
     # Summary

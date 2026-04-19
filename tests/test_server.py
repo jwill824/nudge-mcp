@@ -649,6 +649,89 @@ def test_format_session_analysis_no_issues_when_clean():
     assert "No major inefficiencies" in output
 
 
+def test_analyze_session_events_detects_mcp_tool():
+    events = _make_events(tool_calls_per_turn=[["github-mcp-server-list_issues"]])
+    # Inject a fake completion event with a large result
+    events.append({
+        "type": "tool.execution_complete",
+        "data": {
+            "toolCallId": "tc00",
+            "result": {"content": "x" * 10_000},
+        },
+        "timestamp": events[-1]["timestamp"],
+    })
+    result = _analyze_session_events(events)
+    assert "mcp_tool_analysis" in result
+    mcp_tools = {t["name"] for t in result["mcp_tool_analysis"]}
+    assert "github-mcp-server-list_issues" in mcp_tools
+
+
+def test_analyze_session_events_mcp_disable_verdict():
+    """High avg KB (<3 calls) → 'consider disabling' verdict."""
+    events = _make_events(tool_calls_per_turn=[["github-mcp-server-list_issues"]])
+    events.append({
+        "type": "tool.execution_complete",
+        "data": {"toolCallId": "tc00", "result": {"content": "x" * 10_000}},
+        "timestamp": events[-1]["timestamp"],
+    })
+    result = _analyze_session_events(events)
+    entry = next(t for t in result["mcp_tool_analysis"] if t["name"] == "github-mcp-server-list_issues")
+    assert "consider disabling" in entry["verdict"]
+
+
+def test_analyze_session_events_detects_skill_via_skill_tool():
+    events = _make_events()
+    events.append({
+        "type": "tool.execution_start",
+        "data": {"toolCallId": "sk1", "toolName": "skill", "arguments": {"skill": "superpowers"}},
+        "timestamp": events[-1]["timestamp"],
+    })
+    result = _analyze_session_events(events)
+    names = [s["name"] for s in result["skill_tools_used"]]
+    assert "superpowers" in names
+
+
+def test_analyze_session_events_detects_skill_by_tool_name():
+    events = _make_events(tool_calls_per_turn=[["spec-kit"]])
+    result = _analyze_session_events(events)
+    names = [s["name"] for s in result["skill_tools_used"]]
+    assert "spec-kit" in names
+
+
+def test_format_session_analysis_shows_mcp_budget_section():
+    events = _make_events(tool_calls_per_turn=[["github-mcp-server-list_issues"]])
+    events.append({
+        "type": "tool.execution_complete",
+        "data": {"toolCallId": "tc00", "result": {"content": "x" * 10_000}},
+        "timestamp": events[-1]["timestamp"],
+    })
+    analysis = _analyze_session_events(events)
+    output = _format_session_analysis(analysis)
+    assert "MCP Tool Budget" in output
+    assert "github-mcp-server-list_issues" in output
+
+
+def test_format_session_analysis_shows_skill_section():
+    events = _make_events()
+    events.append({
+        "type": "tool.execution_start",
+        "data": {"toolCallId": "sk1", "toolName": "skill", "arguments": {"skill": "superpowers"}},
+        "timestamp": events[-1]["timestamp"],
+    })
+    analysis = _analyze_session_events(events)
+    output = _format_session_analysis(analysis)
+    assert "Session Structure Tools" in output
+    assert "superpowers" in output
+
+
+def test_format_session_analysis_shows_no_skills_message():
+    events = _make_events()
+    analysis = _analyze_session_events(events)
+    output = _format_session_analysis(analysis)
+    assert "Session Structure Tools" in output
+    assert "No skills detected" in output
+
+
 # ---------------------------------------------------------------------------
 # _find_active_session_id() — unit test
 # ---------------------------------------------------------------------------
