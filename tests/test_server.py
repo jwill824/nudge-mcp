@@ -166,10 +166,10 @@ async def test_list_tools_names(client):
     tools = await client.list_tools()
     names = {t.name for t in tools}
     assert names == {
-        "session_report",
-        "monthly_summary",
-        "calibrate_pricing",
-        "tool_impact",
+        "claude_session_report",
+        "claude_monthly_summary",
+        "claude_calibrate_pricing",
+        "claude_tool_impact",
         "copilot_session_report",
         "copilot_monthly_summary",
         "configure_subscription",
@@ -224,7 +224,7 @@ async def test_pricing_resource_has_sonnet(client):
 # ---------------------------------------------------------------------------
 
 async def test_session_report_no_data_returns_message(client):
-    result = await client.call_tool("session_report", {})
+    result = await client.call_tool("claude_session_report", {})
     text = _result_text(result)
     assert isinstance(text, str)
     assert len(text) > 0
@@ -235,14 +235,14 @@ async def test_session_report_no_data_returns_message(client):
 # ---------------------------------------------------------------------------
 
 async def test_session_report_with_data_shows_rows(client, fake_csv):
-    result = await client.call_tool("session_report", {})
+    result = await client.call_tool("claude_session_report", {})
     text = _result_text(result)
     assert "proj-alpha" in text
     assert "proj-beta" in text
 
 
 async def test_session_report_month_filter_april(client, fake_csv):
-    result = await client.call_tool("session_report", {"month": "2026-04"})
+    result = await client.call_tool("claude_session_report", {"month": "2026-04"})
     text = _result_text(result)
     assert "proj-alpha" in text
     assert "proj-beta" in text
@@ -250,14 +250,14 @@ async def test_session_report_month_filter_april(client, fake_csv):
 
 
 async def test_session_report_month_filter_march(client, fake_csv):
-    result = await client.call_tool("session_report", {"month": "2026-03"})
+    result = await client.call_tool("claude_session_report", {"month": "2026-03"})
     text = _result_text(result)
     assert "proj-gamma" in text
     assert "proj-alpha" not in text
 
 
 async def test_session_report_last_limits_results(client, fake_csv):
-    result = await client.call_tool("session_report", {"last": 1})
+    result = await client.call_tool("claude_session_report", {"last": 1})
     text = _result_text(result)
     # With last=1 only the final row (proj-gamma is 3rd chronologically)
     # CSV has 3 rows; last=1 returns only the last
@@ -265,20 +265,20 @@ async def test_session_report_last_limits_results(client, fake_csv):
 
 
 async def test_session_report_today_returns_no_data_for_old_csv(client, fake_csv):
-    result = await client.call_tool("session_report", {"today": True})
+    result = await client.call_tool("claude_session_report", {"today": True})
     text = _result_text(result)
     # Sample data is from 2026-04-01/02 and 2026-03-15, not today
     assert "No sessions found" in text or "proj-alpha" not in text
 
 
 async def test_session_report_shows_cost(client, fake_csv):
-    result = await client.call_tool("session_report", {"month": "2026-04"})
+    result = await client.call_tool("claude_session_report", {"month": "2026-04"})
     text = _result_text(result)
     assert "$" in text
 
 
 async def test_session_report_shows_summary_line(client, fake_csv):
-    result = await client.call_tool("session_report", {"month": "2026-04"})
+    result = await client.call_tool("claude_session_report", {"month": "2026-04"})
     text = _result_text(result)
     assert "Sessions:" in text
     assert "Total est.:" in text
@@ -289,19 +289,19 @@ async def test_session_report_shows_summary_line(client, fake_csv):
 # ---------------------------------------------------------------------------
 
 async def test_monthly_summary_default(client):
-    result = await client.call_tool("monthly_summary", {})
+    result = await client.call_tool("claude_monthly_summary", {})
     text = _result_text(result)
     assert isinstance(text, str)
 
 
 async def test_monthly_summary_specific_month(client):
-    result = await client.call_tool("monthly_summary", {"month": "2026-04"})
+    result = await client.call_tool("claude_monthly_summary", {"month": "2026-04"})
     text = _result_text(result)
     assert isinstance(text, str)
 
 
 async def test_monthly_summary_unknown_month_returns_message(client):
-    result = await client.call_tool("monthly_summary", {"month": "1999-01"})
+    result = await client.call_tool("claude_monthly_summary", {"month": "1999-01"})
     text = _result_text(result)
     assert "1999-01" in text
 
@@ -311,19 +311,19 @@ async def test_monthly_summary_unknown_month_returns_message(client):
 # ---------------------------------------------------------------------------
 
 async def test_tool_impact_unknown_tool(client):
-    result = await client.call_tool("tool_impact", {"tool": "nonexistent_tool_xyz"})
+    result = await client.call_tool("claude_tool_impact", {"tool": "nonexistent_tool_xyz"})
     text = _result_text(result)
     assert "nonexistent_tool_xyz" in text or "No session" in text
 
 
 async def test_tool_impact_empty_string(client):
-    result = await client.call_tool("tool_impact", {"tool": ""})
+    result = await client.call_tool("claude_tool_impact", {"tool": ""})
     text = _result_text(result)
     assert "provide" in text.lower()
 
 
 async def test_tool_impact_with_data_and_known_tool(client, fake_csv):
-    result = await client.call_tool("tool_impact", {"tool": "Read"})
+    result = await client.call_tool("claude_tool_impact", {"tool": "Read"})
     text = _result_text(result)
     # "Read" appears in two of the three sample sessions
     assert "Read" in text or "Tool Impact" in text

@@ -91,7 +91,7 @@ The MCP server connects on startup. You should see `scrooge` listed when you run
 
 Once installed, ask Claude naturally — it will call the tools automatically.
 
-### `session_report`
+### `claude_session_report`
 
 Recent sessions with per-session cost and efficiency metrics.
 
@@ -107,7 +107,7 @@ Recent sessions with per-session cost and efficiency metrics.
 | `today` | boolean | Today's sessions only |
 | `month` | string | Filter by month, e.g. `"2026-04"` |
 
-### `monthly_summary`
+### `claude_monthly_summary`
 
 Total token usage and estimated cost for a Claude Code billing month. Shows spend vs your configured monthly budget with remaining runway.
 
@@ -153,9 +153,9 @@ Update the active Claude Code or GitHub Copilot plan and monthly budget.
 
 **Copilot plans:** `copilot_free` ($0), `copilot_pro` ($10), `copilot_pro_plus` ($39), `copilot_business` ($19/seat), `copilot_enterprise` ($39/seat)
 
-### `tool_impact`
+### `claude_tool_impact`
 
-Compare session efficiency between sessions that used a specific tool vs those that didn't.
+Compare Claude Code session efficiency between sessions that used a specific tool vs those that didn't.
 
 ```
 "What impact does Serena have on my session efficiency?"
@@ -186,7 +186,7 @@ Show GitHub Copilot CLI session output token usage and efficiency metrics.
 
 > **Note:** Only `output_tokens` are tracked. The Copilot CLI does not expose input or cache token counts.
 
-### `calibrate_pricing`
+### `claude_calibrate_pricing`
 
 Update the discount factor from your actual Claude Code billing statement.
 

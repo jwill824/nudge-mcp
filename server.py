@@ -6,10 +6,10 @@ Exposes session token usage and cost data as MCP tools so Claude can
 query its own usage mid-conversation.
 
 Tools:
-  session_report              — Recent Claude Code sessions with cost and efficiency metrics
-  monthly_summary             — Total cost and token breakdown for a Claude Code billing month
-  calibrate_pricing           — Update the discount factor from actual billing
-  tool_impact                 — Compare efficiency metrics for sessions that used a specific tool vs those that didn't
+  claude_session_report       — Recent Claude Code sessions with cost and efficiency metrics
+  claude_monthly_summary      — Total cost and token breakdown for a Claude Code billing month
+  claude_calibrate_pricing    — Update the discount factor from actual billing
+  claude_tool_impact          — Compare efficiency metrics for sessions that used a specific tool vs those that didn't
   copilot_tool_impact         — Same as tool_impact but for Copilot CLI sessions (output tokens/turn + est. cost)
   copilot_session_report      — Recent Copilot CLI sessions with output token metrics
   copilot_monthly_summary     — Monthly output token summary for Copilot CLI
@@ -593,7 +593,7 @@ def pricing_resource() -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool
-def session_report(
+def claude_session_report(
     last: int = 20,
     today: bool = False,
     month: Optional[str] = None,
@@ -612,7 +612,7 @@ def session_report(
 
 
 @mcp.tool
-def monthly_summary(month: Optional[str] = None) -> str:
+def claude_monthly_summary(month: Optional[str] = None) -> str:
     """Return total token usage and estimated cost for a Claude Code billing month.
 
     Shows spend vs your configured monthly budget and remaining runway.
@@ -625,7 +625,7 @@ def monthly_summary(month: Optional[str] = None) -> str:
 
 
 @mcp.tool
-def calibrate_pricing(actual_billed: float, month: Optional[str] = None) -> str:
+def claude_calibrate_pricing(actual_billed: float, month: Optional[str] = None) -> str:
     """Update the pricing discount factor from actual Claude Code billing.
 
     Run this each month after your billing statement resets.
@@ -639,8 +639,8 @@ def calibrate_pricing(actual_billed: float, month: Optional[str] = None) -> str:
 
 
 @mcp.tool
-def tool_impact(tool: str, month: Optional[str] = None) -> str:
-    """Analyze how a specific tool affects session efficiency.
+def claude_tool_impact(tool: str, month: Optional[str] = None) -> str:
+    """Analyze how a specific tool affects Claude Code session efficiency.
 
     Scans session history to compare tokens/turn, cache hit %, and cost
     between sessions that used the tool and those that didn't.
