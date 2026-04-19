@@ -37,7 +37,6 @@ import subprocess
 import urllib.error
 import urllib.request
 import calendar
-from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from glob import glob
 from pathlib import Path
@@ -58,7 +57,6 @@ from core.loaders import (
 )
 
 from core.analysis import (
-    _WORKFLOW_TOOLS,
     _analyze_session_events,
     _format_session_analysis,
 )
