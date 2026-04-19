@@ -14,6 +14,7 @@ from server import (
     mcp, fmt, _matches_tool, _avg, _tok_per_turn,
     load_copilot_sessions, load_copilot_session_events,
     _analyze_session_events, _format_session_analysis, _find_active_session_id,
+    _get_gh_token, _get_gh_username, _copilot_premium_usage,
 )
 import server as _server
 
@@ -157,7 +158,7 @@ def test_tok_per_turn_zero_turns_fallback():
 
 async def test_list_tools_count(client):
     tools = await client.list_tools()
-    assert len(tools) == 9
+    assert len(tools) == 10
 
 
 async def test_list_tools_names(client):
@@ -173,6 +174,7 @@ async def test_list_tools_names(client):
         "configure_subscription",
         "analyze_copilot_session",
         "copilot_behavior_report",
+        "copilot_premium_usage",
     }
 
 
@@ -687,3 +689,137 @@ async def test_configure_subscription_plan_and_budget_override(client):
     text = _result_text(result)
     assert "150" in text
 
+
+
+# ---------------------------------------------------------------------------
+# _copilot_premium_usage unit tests
+# ---------------------------------------------------------------------------
+
+def _fake_usage_response(items: list[dict]) -> bytes:
+    return json.dumps({
+        "timePeriod": {"year": 2026, "month": 4},
+        "usageItems": items,
+    }).encode()
+
+
+def test_copilot_premium_usage_no_token(monkeypatch):
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: type("R", (), {"returncode": 1, "stdout": ""})())
+    result = _copilot_premium_usage({"month": "2026-04"})
+    assert "No GitHub token" in result
+
+
+def test_copilot_premium_usage_invalid_month():
+    result = _copilot_premium_usage({"month": "April-2026"})
+    assert "Invalid month" in result
+
+
+def test_copilot_premium_usage_success(monkeypatch):
+    import urllib.request
+    import server as _srv
+
+    monkeypatch.setenv("GH_TOKEN", "fake-token")
+    monkeypatch.setenv("GITHUB_USER", "testuser")
+
+    items = [
+        {
+            "product": "Copilot", "sku": "Copilot Premium Request",
+            "model": "claude-sonnet-4-6", "unitType": "requests",
+            "pricePerUnit": 0.04, "grossQuantity": 50, "grossAmount": 2.0,
+            "discountQuantity": 0, "discountAmount": 0.0,
+            "netQuantity": 50, "netAmount": 2.0,
+        },
+        {
+            "product": "Copilot", "sku": "Copilot Premium Request",
+            "model": "gpt-5", "unitType": "requests",
+            "pricePerUnit": 0.04, "grossQuantity": 25, "grossAmount": 1.0,
+            "discountQuantity": 0, "discountAmount": 0.0,
+            "netQuantity": 25, "netAmount": 1.0,
+        },
+    ]
+
+    class FakeResponse:
+        def read(self): return _fake_usage_response(items)
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **kw: FakeResponse())
+
+    result = _copilot_premium_usage({"month": "2026-04"})
+    assert "testuser" in result
+    assert "2026-04" in result
+    assert "75" in result        # total requests
+    assert "3.00" in result      # total cost
+    assert "claude-sonnet-4-6" in result
+    assert "gpt-5" in result
+
+
+def test_copilot_premium_usage_empty_items(monkeypatch):
+    import urllib.request
+    monkeypatch.setenv("GH_TOKEN", "fake-token")
+    monkeypatch.setenv("GITHUB_USER", "testuser")
+
+    class FakeResponse:
+        def read(self): return _fake_usage_response([])
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **kw: FakeResponse())
+
+    result = _copilot_premium_usage({"month": "2026-04"})
+    assert "No premium request usage" in result
+
+
+def test_copilot_premium_usage_403(monkeypatch):
+    import urllib.request, urllib.error
+    monkeypatch.setenv("GH_TOKEN", "fake-token")
+    monkeypatch.setenv("GITHUB_USER", "testuser")
+
+    def raise_403(*a, **kw):
+        raise urllib.error.HTTPError(None, 403, "Forbidden", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", raise_403)
+    result = _copilot_premium_usage({"month": "2026-04"})
+    assert "Access denied" in result
+
+
+def test_copilot_premium_usage_404(monkeypatch):
+    import urllib.request, urllib.error
+    monkeypatch.setenv("GH_TOKEN", "fake-token")
+    monkeypatch.setenv("GITHUB_USER", "testuser")
+
+    def raise_404(*a, **kw):
+        raise urllib.error.HTTPError(None, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", raise_404)
+    result = _copilot_premium_usage({"month": "2026-04"})
+    assert "No premium request data" in result
+
+
+def test_copilot_premium_usage_overage_budget(monkeypatch):
+    import urllib.request
+    import server as _srv
+    monkeypatch.setenv("GH_TOKEN", "fake-token")
+    monkeypatch.setenv("GITHUB_USER", "testuser")
+    monkeypatch.setattr(_srv._config, "load", lambda: {
+        "copilot_overage_budget": 10.0,
+        "copilot_monthly_budget": 10.0,
+    })
+
+    items = [{
+        "model": "claude-sonnet-4-6", "grossQuantity": 100, "grossAmount": 4.0,
+        "discountQuantity": 0, "discountAmount": 0.0, "netQuantity": 100, "netAmount": 4.0,
+    }]
+
+    class FakeResponse:
+        def read(self): return _fake_usage_response(items)
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **kw: FakeResponse())
+
+    result = _copilot_premium_usage({"month": "2026-04"})
+    assert "40.0% used" in result
+    assert "10.00" in result

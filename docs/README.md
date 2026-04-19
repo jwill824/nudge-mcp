@@ -226,6 +226,21 @@ Deep-dive analysis of a single Copilot CLI session. Checks prompt quality, tool 
 |-------|------|-------------|
 | `session_id` | string | Full or partial session UUID. Omit to use the active or most recent session. |
 
+### `copilot_premium_usage`
+
+Fetch live Copilot premium request usage from the GitHub API. Shows requests used and cost broken down by model, with progress against your configured overage budget. Uses the `gh` CLI token automatically — no extra setup needed if you're already authenticated with `gh`.
+
+Requires a fine-grained PAT (or `gh auth login`) with **Plan (read)** permission. Only returns data for individual Copilot plans, not org/enterprise-managed licenses.
+
+```
+"Show my Copilot premium request usage for this month"
+"How many premium requests have I used in April 2026?"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `month` | string | Month in YYYY-MM format. Defaults to current month. |
+
 ---
 
 ## CLI Tools

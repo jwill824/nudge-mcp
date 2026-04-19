@@ -15,6 +15,7 @@ Tools:
   configure_subscription      — Update active Claude or Copilot plan and monthly budget
   analyze_copilot_session     — Analyze a session for inefficient prompts, poor tool batching, bash overuse, missing memory
   copilot_behavior_report     — Cross-session pattern analysis: recurring inefficiencies and actionable recommendations
+  copilot_premium_usage       — Fetch live premium request usage from the GitHub API for the current month
 """
 
 import sys
@@ -29,6 +30,9 @@ sys.path.insert(0, _HERE)
 import csv
 import json
 import re
+import subprocess
+import urllib.error
+import urllib.request
 from datetime import date, datetime, timezone
 from glob import glob
 from pathlib import Path
@@ -738,6 +742,24 @@ def copilot_behavior_report(last: int = 10, month: Optional[str] = None) -> str:
         month: Limit to a specific month, e.g. '2026-04'
     """
     return _copilot_behavior_report({"last": last, "month": month})
+
+
+@mcp.tool
+def copilot_premium_usage(month: Optional[str] = None) -> str:
+    """Fetch live Copilot premium request usage from the GitHub API.
+
+    Calls GET /users/{username}/settings/billing/premium_request/usage and
+    shows requests used, cost by model, and progress against your configured
+    overage budget. Uses the gh CLI token automatically; falls back to the
+    GH_TOKEN or GITHUB_TOKEN environment variables.
+
+    Requires a fine-grained PAT (or gh CLI login) with 'Plan' (read) permission.
+    Only works for individual Copilot plans — not org/enterprise-managed licenses.
+
+    Args:
+        month: Month in YYYY-MM format. Defaults to current month.
+    """
+    return _copilot_premium_usage({"month": month})
 
 
 def _session_report(args: dict) -> str:
@@ -1527,6 +1549,171 @@ def _copilot_behavior_report(args: dict) -> str:
     else:
         lines.append("✅  No major behavioural patterns to flag.")
 
+    return "\n".join(lines)
+
+
+def _get_gh_token() -> str | None:
+    """Return a GitHub token from env vars or the gh CLI keychain."""
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        return token
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"], capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def _get_gh_username(token: str) -> str | None:
+    """Return the GitHub username from env var, config, gh CLI, or the API."""
+    username = os.environ.get("GITHUB_USER") or os.environ.get("GH_USER")
+    if username:
+        return username
+    username = _config.load().get("github_username")
+    if username:
+        return username
+    try:
+        result = subprocess.run(
+            ["gh", "api", "user", "--jq", ".login"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read()).get("login")
+    except Exception:
+        pass
+    return None
+
+
+def _copilot_premium_usage(args: dict) -> str:
+    month_str = args.get("month")
+    if month_str:
+        try:
+            dt = datetime.strptime(month_str, "%Y-%m")
+            year, month = dt.year, dt.month
+        except ValueError:
+            return f"Invalid month format: '{month_str}'. Use YYYY-MM."
+    else:
+        now = datetime.now()
+        year, month = now.year, now.month
+
+    token = _get_gh_token()
+    if not token:
+        return (
+            "No GitHub token found. Either:\n"
+            "  1. Run `gh auth login` to authenticate with the gh CLI\n"
+            "  2. Set the GH_TOKEN or GITHUB_TOKEN environment variable"
+        )
+
+    username = _get_gh_username(token)
+    if not username:
+        return (
+            "Could not determine GitHub username. "
+            "Set GITHUB_USER env var or run `gh auth login`."
+        )
+
+    url = (
+        f"https://api.github.com/users/{username}/settings/billing"
+        f"/premium_request/usage?year={year}&month={month}"
+    )
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return (
+                f"No premium request data found for {username} in "
+                f"{year}-{month:02d}.\n"
+                "This endpoint only works for individual Copilot plans "
+                "(not org/enterprise-managed licenses)."
+            )
+        if e.code == 403:
+            return "Access denied. Ensure your token has 'Plan' (read) permission."
+        return f"GitHub API error {e.code}: {e.reason}"
+    except Exception as e:
+        return f"Failed to fetch premium request usage: {e}"
+
+    usage_items = data.get("usageItems", [])
+    period = f"{year}-{month:02d}"
+
+    if not usage_items:
+        return f"No premium request usage found for {username} in {period}."
+
+    # Aggregate by model
+    by_model: dict[str, dict] = {}
+    total_requests = 0
+    total_cost = 0.0
+    for item in usage_items:
+        model = item.get("model") or "unknown"
+        qty = item.get("grossQuantity", 0)
+        amt = item.get("grossAmount", 0.0)
+        total_requests += qty
+        total_cost += amt
+        if model not in by_model:
+            by_model[model] = {"requests": 0, "cost": 0.0}
+        by_model[model]["requests"] += qty
+        by_model[model]["cost"] += amt
+
+    cfg = _config.load()
+    overage_budget = cfg.get("copilot_overage_budget", 0.0)
+
+    div = "─" * 58
+    lines = [
+        f"## Copilot Premium Request Usage — {username} ({period})",
+        "",
+        f"  Total requests used:  {total_requests:>6,}",
+        f"  Total cost:           ${total_cost:>8.2f}",
+    ]
+
+    if overage_budget > 0:
+        pct = (total_cost / overage_budget * 100) if overage_budget else 0.0
+        filled = min(20, int(pct / 5))
+        bar = "█" * filled + "░" * (20 - filled)
+        lines.append(
+            f"  Overage budget:       ${overage_budget:>8.2f}  "
+            f"({pct:.1f}% used)  [{bar}]"
+        )
+
+    lines += [
+        "",
+        div,
+        f"  {'Model':<42} {'Requests':>8}  {'Cost':>8}",
+        div,
+    ]
+    for model, stats in sorted(by_model.items(), key=lambda x: -x[1]["requests"]):
+        lines.append(
+            f"  {model:<42} {stats['requests']:>8,}  ${stats['cost']:>7.2f}"
+        )
+    lines += [
+        div,
+        "",
+        "  Note: Counters reset on the 1st of each month at 00:00 UTC.",
+        "  Only individual Copilot plan usage is returned by this endpoint.",
+    ]
     return "\n".join(lines)
 
 
