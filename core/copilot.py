@@ -12,15 +12,12 @@ Responsibilities:
 
 import json
 import os
-import re
 import subprocess
 import urllib.error
 import urllib.request
 import calendar
-from collections import Counter
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
-from typing import Literal, Optional
+from datetime import date, datetime, timedelta
+from typing import Optional
 
 import config as _config
 from pricing import COPILOT_PLANS
