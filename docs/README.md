@@ -201,7 +201,7 @@ Update the discount factor from your actual Claude Code billing statement.
 
 ### `copilot_behavior_report`
 
-Cross-session pattern analysis. Aggregates behavioural signals across recent sessions to surface recurring inefficiencies with actionable recommendations.
+Cross-session pattern analysis. Aggregates behavioural signals across recent sessions to surface recurring inefficiencies with actionable recommendations. Includes aggregate context cost (heavy tool results), `store_memory` utilisation, and a smart tool recommendation when heavy `view` usage is detected without Serena, ck, or ast-grep.
 
 ```
 "Analyse my last 10 Copilot sessions for bad habits"
@@ -215,7 +215,7 @@ Cross-session pattern analysis. Aggregates behavioural signals across recent ses
 
 ### `analyze_copilot_session`
 
-Deep-dive analysis of a single Copilot CLI session. Checks prompt quality, tool batching (parallelism), bash overuse vs specialised tools, and memory utilisation.
+Deep-dive analysis of a single Copilot CLI session. Checks prompt quality, tool batching (parallelism), bash overuse vs specialised tools, memory utilisation, context cost (heavy tool results), and smart code intelligence tool usage (Serena, ck, ast-grep).
 
 ```
 "Analyse my current session"
