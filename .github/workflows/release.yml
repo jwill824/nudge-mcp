@@ -93,7 +93,7 @@ jobs:
       - name: Create GitHub Release
         if: steps.check_tag.outputs.already_tagged == 'false'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           CHANGELOG: ${{ steps.changelog.outputs.CHANGELOG }}
         run: |
           printf '%s' "$CHANGELOG" > $GITHUB_WORKSPACE/release-notes.md
