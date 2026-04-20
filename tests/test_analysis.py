@@ -403,3 +403,22 @@ def test_format_session_analysis_stagnation_warning_when_high_score():
     assert "Superpowers" in output
     assert "GSD" in output
     assert "Spec-Kit" in output
+
+
+def test_analyze_session_events_includes_model_data():
+    events = _make_events(["hello world"])
+    result = _analyze_session_events(events)
+    assert "model_turns" in result
+    assert "model_over_count" in result
+    assert "model_total_turns" in result
+    assert "model_savings_usd" in result
+    assert "model_efficiency_score" in result
+    assert isinstance(result["model_turns"], list)
+    assert isinstance(result["model_efficiency_score"], int)
+
+
+def test_format_session_analysis_includes_model_usage_section():
+    events = _make_events(["hello world"])
+    analysis = _analyze_session_events(events)
+    formatted = _format_session_analysis(analysis)
+    assert "### Model Usage" in formatted

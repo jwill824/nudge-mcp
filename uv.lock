@@ -600,7 +600,7 @@ wheels = [
 
 [[package]]
 name = "nudge-mcp"
-version = "0.1.2"
+version = "0.0.3"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
@@ -612,6 +612,11 @@ dev = [
     { name = "pytest-asyncio" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=2.0.0" },
@@ -619,6 +624,9 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.0.3" }]
 
 [[package]]
 name = "openapi-pydantic"

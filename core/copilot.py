@@ -25,6 +25,7 @@ from pricing import COPILOT_PLANS
 # Use module references so tests can patch these in one place
 from core import loaders as _loaders
 from core import analysis as _analysis
+from core import model_analysis as _model_analysis
 from core.claude import _matches_tool
 
 def _copilot_tool_impact(args: dict) -> str:
@@ -1051,3 +1052,114 @@ def _copilot_premium_usage(args: dict) -> str:
     ]
     return "\n".join(lines)
 
+
+def _copilot_model_efficiency(args: dict) -> str:
+    """Cross-session model efficiency report."""
+    last  = int(args.get("last", 10))
+    month = args.get("month")
+
+    if not _loaders.COPILOT_SESSIONS_PATH.exists():
+        return "No Copilot session data found at ~/.copilot/session-state/."
+
+    # Gather session directories sorted by most-recently-modified
+    candidates = sorted(
+        (d for d in _loaders.COPILOT_SESSIONS_PATH.iterdir() if (d / "events.jsonl").exists()),
+        key=lambda d: d.stat().st_mtime,
+        reverse=True,
+    )
+
+    session_rows: list[dict] = []
+    total_turns = 0
+    total_over  = 0
+    total_savings = 0.0
+
+    for session_dir in candidates:
+        if not month and len(session_rows) >= last:
+            break
+
+        events = _loaders.load_copilot_session_events(session_dir.name)
+        if not events:
+            continue
+
+        # Get session date for month filter
+        start_evt = next((e for e in events if e.get("type") == "session.start"), None)
+        ts = (start_evt or {}).get("timestamp", "")
+        date_str = ts[:10] if ts else ""
+
+        if month and not date_str.startswith(month):
+            continue
+
+        # Derive default model from session.model_change events
+        session_model = ""
+        for e in events:
+            if e.get("type") == "session.model_change":
+                session_model = e.get("data", {}).get("newModel", session_model)
+
+        analyzed = _model_analysis.analyze_session_model_usage(events, session_model)
+        savings   = _model_analysis.estimate_savings(analyzed)
+
+        n_turns   = savings["total_turns"]
+        n_over    = savings["over_powered_turns"]
+        n_simple  = sum(1 for t in analyzed if t["complexity"] <= 2)
+        eff_score = int(100 * (1 - n_over / n_turns)) if n_turns else 100
+
+        # Derive project name from session start cwd
+        cwd = (start_evt or {}).get("data", {}).get("context", {}).get("cwd", "")
+        project = (cwd.split("/")[-1] or session_dir.name[:8]) if cwd else session_dir.name[:8]
+
+        flag = "⚠️ over" if n_over > 0 else "✅ fit"
+
+        session_rows.append({
+            "date":      date_str or session_dir.name[:10],
+            "project":   project[:10],
+            "model":     session_model[:18] or "unknown",
+            "turns":     n_turns,
+            "simple":    n_simple,
+            "score":     eff_score,
+            "flag":      flag,
+        })
+
+        total_turns   += n_turns
+        total_over    += n_over
+        total_savings += savings["savings_usd"]
+
+    if not session_rows:
+        period = f" for {month}" if month else ""
+        return f"No Copilot CLI sessions found{period}."
+
+    overall_eff = int(100 * (1 - total_over / total_turns)) if total_turns else 100
+    eff_icon = "✅" if overall_eff >= 80 else "⚠️"
+
+    div = "─" * 78
+    period_label = f" ({month})" if month else f" (last {len(session_rows)})"
+    lines = [
+        f"## Copilot Model Efficiency{period_label}",
+        "",
+        f"Overall efficiency score:    {overall_eff} / 100  {eff_icon}",
+        f"Over-powered turns:          {total_over} / {total_turns}"
+        + (f"  ({100 * total_over // total_turns}%)" if total_turns else ""),
+        f"Est. savings if right-sized: ~${total_savings:.2f} (output tokens only)",
+        "",
+    ]
+
+    header = (
+        f"{'Date':<12} {'Project':<11} {'Model':<19} "
+        f"{'Turns':>5} {'Simple':>6} {'Score':>5}  {'Flag'}"
+    )
+    lines += [div, header, div]
+
+    for row in session_rows:
+        lines.append(
+            f"{row['date']:<12} {row['project']:<11} {row['model']:<19} "
+            f"{row['turns']:>5} {row['simple']:>6} {row['score']:>5}  {row['flag']}"
+        )
+
+    lines.append(div)
+    lines.append("")
+    lines.append(
+        "Score = 100 × (1 − over-powered turns / total turns). "
+        "Simple = turns with complexity ≤ 2. "
+        "Savings use list prices, output tokens only (conservative)."
+    )
+
+    return "\n".join(lines)

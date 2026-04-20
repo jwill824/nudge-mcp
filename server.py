@@ -19,6 +19,7 @@ Tools:
   copilot_premium_usage       — Fetch live premium request usage from the GitHub API for the current month
   record_copilot_spend        — Manually record actual Copilot overage spend for a month
   copilot_budget_forecast     — Forecast end-of-month spend and show waste savings from fixing inefficiencies
+  copilot_model_efficiency    — Per-turn model fit analysis: efficiency score, over-powered turns, savings estimate
 """
 
 import sys
@@ -53,6 +54,7 @@ from core.copilot import (
     _copilot_budget_forecast,
     _record_copilot_spend,
     _copilot_premium_usage,
+    _copilot_model_efficiency,
 )
 
 mcp = FastMCP("nudge-mcp")
@@ -343,6 +345,24 @@ def copilot_budget_forecast(month: Optional[str] = None) -> str:
         month: Month in YYYY-MM format. Defaults to current month.
     """
     return _copilot_budget_forecast({"month": month})
+
+
+@mcp.tool
+def copilot_model_efficiency(
+    last: int = 10,
+    month: Optional[str] = None,
+) -> str:
+    """Analyse how well the active model matched task complexity across Copilot CLI sessions.
+
+    Scores each turn 0–8 (prompt length, output tokens, tool count, unique tools),
+    classifies each as over-powered / fit / under-powered, and estimates savings
+    from switching simple turns to a budget model.
+
+    Args:
+        last: Number of most-recent sessions to analyse (default: 10)
+        month: Filter to a specific month, e.g. '2026-04'
+    """
+    return _copilot_model_efficiency({"last": last, "month": month})
 
 
 def main():

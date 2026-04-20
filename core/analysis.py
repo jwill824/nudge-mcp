@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.loaders import fmt
+from core.model_analysis import analyze_session_model_usage, estimate_savings as _estimate_savings
 
 # Metadata for known agentic workflow systems (skills, subagent orchestrators, spec-driven tools).
 # These are not just prompts — they bring tools, subagents, and structured multi-step workflows
@@ -315,6 +316,18 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         )
     _session_health_score = len(_session_health_signals)
 
+    # --- Model efficiency ---
+    _session_model = ""
+    for _e in events:
+        if _e.get("type") == "session.model_change":
+            _session_model = _e.get("data", {}).get("newModel", "")
+            break  # first change = session start model
+    _model_turns   = analyze_session_model_usage(events, _session_model)
+    _model_savings = _estimate_savings(_model_turns)
+    _model_total   = _model_savings["total_turns"]
+    _model_over    = _model_savings["over_powered_turns"]
+    _model_eff     = int(100 * (1 - _model_over / _model_total)) if _model_total else 100
+
     return {
         "session_id":        session_id[:8] if session_id else "",
         "project":           Path(cwd).name if cwd else "unknown",
@@ -351,6 +364,11 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
         "skill_tools_used":  skill_tools_used,
         "session_health_signals": _session_health_signals,
         "session_health_score":   _session_health_score,
+        "model_turns":            _model_turns,
+        "model_over_count":       _model_over,
+        "model_total_turns":      _model_total,
+        "model_savings_usd":      _model_savings["savings_usd"],
+        "model_efficiency_score": _model_eff,
     }
 
 
@@ -675,6 +693,27 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
                 "Use Superpowers or GSD to preserve state across session boundaries."
             )
 
+    lines.append("")
+
+    # 8. Model Usage
+    lines.append("### Model Usage")
+    _mt = analysis.get("model_total_turns", 0)
+    _mo = analysis.get("model_over_count", 0)
+    _eff = analysis.get("model_efficiency_score", 100)
+    _sav = analysis.get("model_savings_usd", 0.0)
+    if _mt:
+        _eff_icon = "✅" if _eff >= 80 else "⚠️"
+        lines.append(f"{_eff_icon}  Efficiency score: {_eff} / 100")
+        lines.append(f"   Over-powered turns: {_mo} / {_mt}  ({100 * _mo // _mt}%)")
+        if _sav > 0.001:
+            lines.append(f"   Est. savings if right-sized: ~${_sav:.2f}")
+        if _mo > 0:
+            suggestions.append(
+                f"Model over-powered for {_mo}/{_mt} turns — consider switching to Haiku "
+                "for simple lookups, confirmations, and short Q&A turns."
+            )
+    else:
+        lines.append("   No model turn data available.")
     lines.append("")
 
     # Summary

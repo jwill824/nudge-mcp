@@ -296,6 +296,21 @@ Requires `record_copilot_spend` and `configure_subscription` (with `overage_budg
 |-------|------|-------------|
 | `month` | string | Month in YYYY-MM format. Defaults to current month. |
 
+### `copilot_model_efficiency`
+
+Analyse how well the active model matched task complexity across Copilot CLI sessions. Scores each turn 0–8 across four signals (prompt length, output tokens, tool call count, unique tools), classifies each turn as over-powered / fit / under-powered, and estimates savings from switching simple turns to a budget model.
+
+```
+"Has my model usage been efficient this month?"
+"Show me which sessions were over-powered"
+"Analyse model efficiency for the last 10 sessions"
+```
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `last` | int | Number of most-recent sessions to analyse (default: 10) |
+| `month` | string | Filter to a specific month, e.g. `2026-04` |
+
 ---
 
 ## CLI Tools

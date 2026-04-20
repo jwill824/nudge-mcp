@@ -13,6 +13,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    if: github.actor != 'dependabot[bot]'
 
     steps:
       - uses: actions/checkout@v4
