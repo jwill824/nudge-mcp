@@ -3,13 +3,13 @@
 ## Project Structure
 
 ```
-scrooge/
+nudge-mcp/
 ├── server.py            # MCP server — tool definitions and handlers
 ├── log.py               # Stop hook — parses JSONL, writes CSV row
-├── scrooge              # CLI report — reads CSV, formats table
+├── nudge                # CLI report — reads CSV, formats table
 ├── pricing.py           # Shared pricing config — discount factor, cost estimator
 ├── calibrate.py         # CLI calibration — derives discount factor from actual billing
-├── config.py            # Config loader — ~/.config/scrooge/config.json
+├── config.py            # Config loader — ~/.config/nudge/config.json
 ├── pyproject.toml       # Project metadata (requires Python ≥3.12)
 ├── tests/               # pytest test suite
 └── lib/                 # Bundled dependencies (not committed; regenerate with uv)
@@ -22,7 +22,7 @@ Claude Code session ends
   → Stop hook (log.py)
       → reads session JSONL from ~/.claude/projects/
       → imports pricing.py for cost estimate
-      → appends row to ~/.config/scrooge/sessions.csv
+      → appends row to ~/.config/nudge/sessions.csv
 
 Claude asks about usage
   → MCP server (server.py)
@@ -75,7 +75,7 @@ Add an entry here when a new MCP plugin is added to your Claude Code setup. For 
 ```bash
 npx @modelcontextprotocol/inspector \
   /opt/homebrew/bin/uv \
-  run --project ~/Developer/personal/scrooge python ~/Developer/personal/scrooge/server.py
+  run --project ~/Developer/personal/nudge-mcp python ~/Developer/personal/nudge-mcp/server.py
 ```
 
 ---
@@ -98,7 +98,7 @@ Dependencies are bundled in `lib/` (installed via `uv pip install -e .`). The `l
 uv pip install -e .
 ```
 
-Do not add runtime dependencies that aren't needed by all three entry points (`server.py`, `log.py`, `scrooge`). The Stop hook runs on every session end and must be fast and reliable.
+Do not add runtime dependencies that aren't needed by all three entry points (`server.py`, `log.py`, `nudge`). The Stop hook runs on every session end and must be fast and reliable.
 
 ---
 

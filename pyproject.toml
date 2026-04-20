@@ -1,5 +1,5 @@
 [project]
-name = "scrooge"
+name = "nudge-mcp"
 version = "0.1.2"
 description = "MCP server for Claude Code and GitHub Copilot CLI session token usage and cost data"
 readme = "docs/README.md"

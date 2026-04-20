@@ -55,15 +55,15 @@ from core.copilot import (
     _copilot_premium_usage,
 )
 
-mcp = FastMCP("scrooge")
+mcp = FastMCP("nudge-mcp")
 
 # ---------------------------------------------------------------------------
 # MCP Resources
 # ---------------------------------------------------------------------------
 
 @mcp.resource(
-    "scrooge://config",
-    name="Scrooge Config",
+    "nudge://config",
+    name="Nudge Config",
     description=(
         "Current configuration: active subscription plans, monthly budgets, "
         "discount factor, and calibration history. "
@@ -93,7 +93,7 @@ def config_resource() -> str:
 
 
 @mcp.resource(
-    "scrooge://pricing",
+    "nudge://pricing",
     name="API Pricing Tables",
     description=(
         "Anthropic API list prices per model and available subscription plan definitions. "

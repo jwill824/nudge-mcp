@@ -136,12 +136,12 @@ async def test_list_tools_names(client):
 async def test_list_resources(client):
     resources = await client.list_resources()
     uris = {str(r.uri) for r in resources}
-    assert "scrooge://config" in uris
-    assert "scrooge://pricing" in uris
+    assert "nudge://config" in uris
+    assert "nudge://pricing" in uris
 
 
 async def test_config_resource_is_valid_json(client):
-    result = await client.read_resource("scrooge://config")
+    result = await client.read_resource("nudge://config")
     text = result[0].text if hasattr(result[0], "text") else result[0].content
     parsed = json.loads(text)
     assert "discount_factor" in parsed
@@ -150,7 +150,7 @@ async def test_config_resource_is_valid_json(client):
 
 
 async def test_pricing_resource_is_valid_json(client):
-    result = await client.read_resource("scrooge://pricing")
+    result = await client.read_resource("nudge://pricing")
     text = result[0].text if hasattr(result[0], "text") else result[0].content
     parsed = json.loads(text)
     assert "list_prices_per_mtok" in parsed
@@ -160,7 +160,7 @@ async def test_pricing_resource_is_valid_json(client):
 
 
 async def test_pricing_resource_has_sonnet(client):
-    result = await client.read_resource("scrooge://pricing")
+    result = await client.read_resource("nudge://pricing")
     text = result[0].text if hasattr(result[0], "text") else result[0].content
     parsed = json.loads(text)
     assert any("sonnet" in model for model in parsed["list_prices_per_mtok"])

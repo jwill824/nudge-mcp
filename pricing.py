@@ -2,7 +2,7 @@
 Claude Code and GitHub Copilot pricing tables and cost functions.
 
 Mutable config (discount_factor, monthly budgets, active plans) lives in
-~/.config/scrooge/config.json and is managed by config.py.
+~/.config/nudge/config.json and is managed by config.py.
 """
 
 # ---------------------------------------------------------------------------

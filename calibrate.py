@@ -13,7 +13,7 @@ This script:
   1. Sums all token usage for the given month from session JSONL files
   2. Computes the list-price total
   3. Derives the discount factor = actual / list
-  4. Updates discount_factor in ~/.config/scrooge/config.json
+  4. Updates discount_factor in ~/.config/nudge/config.json
   5. Appends to calibration_history in config.json
 """
 
@@ -100,7 +100,7 @@ def main():
     from pricing import CLAUDE_PLANS
     plan_label = CLAUDE_PLANS.get(cfg.get("claude_plan", ""), {}).get("label", cfg.get("claude_plan", ""))
     print(f"Plan: {plan_label}  |  Monthly budget: ${cfg.get('claude_monthly_budget', 0):.2f}")
-    print("Run `scrooge` to see recalculated estimates.")
+    print("Run `nudge` to see recalculated estimates.")
 
 
 if __name__ == "__main__":

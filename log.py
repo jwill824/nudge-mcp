@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Stop hook: log Claude Code session costs to CSV (Scrooge).
+Stop hook: log Claude Code session costs to CSV (Nudge).
 
 Runs automatically when a session ends via the Stop hook in ~/.claude/settings.json.
 Reads session JSONL, sums token usage, and appends one row to sessions.csv.
@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 TOOLS_DIR = Path(__file__).parent
-CSV_PATH = Path.home() / ".config" / "scrooge" / "sessions.csv"
+CSV_PATH = Path.home() / ".config" / "nudge" / "sessions.csv"
 CSV_HEADERS = [
     "date", "session_id", "project", "branch",
     "input_tokens", "output_tokens", "cache_read_tokens", "cache_create_tokens",

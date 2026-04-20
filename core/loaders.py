@@ -1,5 +1,5 @@
 """
-Data loading layer for Scrooge.
+Data loading layer for Nudge.
 
 Responsibilities:
   - Path constants for data directories
@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-CSV_PATH = Path.home() / ".config" / "scrooge" / "sessions.csv"
+CSV_PATH = Path.home() / ".config" / "nudge" / "sessions.csv"
 COPILOT_SESSIONS_PATH = Path.home() / ".copilot" / "session-state"
 COPILOT_CONFIG_PATH = Path.home() / ".copilot" / "config.json"
 

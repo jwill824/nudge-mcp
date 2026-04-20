@@ -1,6 +1,6 @@
-# scrooge
+# nudge-mcp
 
-<!-- mcp-name: io.github.jwill824/scrooge -->
+<!-- mcp-name: io.github.jwill824/nudge-mcp -->
 
 MCP server that exposes Claude Code and GitHub Copilot CLI session token usage and cost data as tools, so your AI assistant can query its own usage mid-conversation.
 
@@ -27,7 +27,7 @@ uv run python --version
 ### 1. Install dependencies
 
 ```bash
-cd ~/Developer/personal/scrooge
+cd ~/Developer/personal/nudge-mcp
 uv pip install -e .
 ```
 
@@ -39,9 +39,9 @@ Add to `~/.claude/settings.json` under `mcpServers`:
 
 ```json
 "mcpServers": {
-  "scrooge": {
+  "nudge-mcp": {
     "command": "/opt/homebrew/bin/uv",
-    "args": ["run", "--project", "/Users/YOUR_USERNAME/Developer/personal/scrooge", "python", "/Users/YOUR_USERNAME/Developer/personal/scrooge/server.py"]
+    "args": ["run", "--project", "/Users/YOUR_USERNAME/Developer/personal/nudge-mcp", "python", "/Users/YOUR_USERNAME/Developer/personal/nudge-mcp/server.py"]
   }
 }
 ```
@@ -55,10 +55,10 @@ Create (or update) `.mcp.json` in the repo root:
 ```json
 {
   "mcpServers": {
-    "scrooge": {
+    "nudge-mcp": {
       "type": "stdio",
       "command": "/opt/homebrew/bin/uv",
-      "args": ["run", "--project", "/Users/YOUR_USERNAME/Developer/personal/scrooge", "python", "/Users/YOUR_USERNAME/Developer/personal/scrooge/server.py"]
+      "args": ["run", "--project", "/Users/YOUR_USERNAME/Developer/personal/nudge-mcp", "python", "/Users/YOUR_USERNAME/Developer/personal/nudge-mcp/server.py"]
     }
   }
 }
@@ -75,17 +75,17 @@ Add to `~/.claude/settings.json` under `hooks`:
   "Stop": [{
     "hooks": [{
       "type": "command",
-      "command": "/opt/homebrew/bin/uv run --project /Users/YOUR_USERNAME/Developer/personal/scrooge python /Users/YOUR_USERNAME/Developer/personal/scrooge/log.py 2>/dev/null || true"
+      "command": "/opt/homebrew/bin/uv run --project /Users/YOUR_USERNAME/Developer/personal/nudge-mcp python /Users/YOUR_USERNAME/Developer/personal/nudge-mcp/log.py 2>/dev/null || true"
     }]
   }]
 }
 ```
 
-This automatically logs token usage to `~/.config/scrooge/sessions.csv` every time a Claude Code session ends.
+This automatically logs token usage to `~/.config/nudge/sessions.csv` every time a Claude Code session ends.
 
 ### 4. Restart Claude Code
 
-The MCP server connects on startup. You should see `scrooge` listed when you run `/mcp` in Claude Code.
+The MCP server connects on startup. You should see `nudge-mcp` listed when you run `/mcp` in Claude Code.
 
 ---
 
@@ -300,30 +300,30 @@ Requires `record_copilot_spend` and `configure_subscription` (with `overage_budg
 ### Session report
 
 ```bash
-~/Developer/personal/scrooge/scrooge             # All Claude sessions
-~/Developer/personal/scrooge/scrooge --last 20   # Last N sessions
-~/Developer/personal/scrooge/scrooge --today     # Today only
-~/Developer/personal/scrooge/scrooge --month 2026-04
-~/Developer/personal/scrooge/scrooge --session abc123  # By session ID prefix
+~/Developer/personal/nudge-mcp/nudge             # All Claude sessions
+~/Developer/personal/nudge-mcp/nudge --last 20   # Last N sessions
+~/Developer/personal/nudge-mcp/nudge --today     # Today only
+~/Developer/personal/nudge-mcp/nudge --month 2026-04
+~/Developer/personal/nudge-mcp/nudge --session abc123  # By session ID prefix
 
-~/Developer/personal/scrooge/scrooge --copilot             # Copilot CLI sessions
-~/Developer/personal/scrooge/scrooge --copilot --last 10
-~/Developer/personal/scrooge/scrooge --copilot --month 2026-04
+~/Developer/personal/nudge-mcp/nudge --copilot             # Copilot CLI sessions
+~/Developer/personal/nudge-mcp/nudge --copilot --last 10
+~/Developer/personal/nudge-mcp/nudge --copilot --month 2026-04
 ```
 
 Add the directory to your PATH for shorter invocations:
 
 ```bash
 # In ~/.zshrc
-export PATH="$HOME/Developer/personal/scrooge:$PATH"
+export PATH="$HOME/Developer/personal/nudge-mcp:$PATH"
 ```
 
 ### Recalibrate pricing
 
 ```bash
-uv run python ~/Developer/personal/scrooge/calibrate.py 185.50
+uv run python ~/Developer/personal/nudge-mcp/calibrate.py 185.50
 # Specify a past month:
-uv run python ~/Developer/personal/scrooge/calibrate.py 198.36 --month 2026-04
+uv run python ~/Developer/personal/nudge-mcp/calibrate.py 198.36 --month 2026-04
 ```
 
 ---
@@ -346,7 +346,7 @@ The `discount_factor` (default `0.5868` ≈ 41% off list) is applied uniformly. 
 ```bash
 npx @modelcontextprotocol/inspector \
   /opt/homebrew/bin/uv \
-  run --project ~/Developer/personal/scrooge python ~/Developer/personal/scrooge/server.py
+  run --project ~/Developer/personal/nudge-mcp python ~/Developer/personal/nudge-mcp/server.py
 ```
 
 ---
@@ -373,7 +373,7 @@ npx @modelcontextprotocol/inspector \
 
 ## Data
 
-Sessions are stored at `~/.config/scrooge/sessions.csv`.
+Sessions are stored at `~/.config/nudge/sessions.csv`.
 
 CSV columns: `date`, `session_id`, `project`, `branch`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_create_tokens`, `total_tokens`, `cache_hit_pct`, `est_cost_usd`, `duration_min`, `turns`
 

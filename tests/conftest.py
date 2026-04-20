@@ -51,7 +51,7 @@ SAMPLE_COPILOT_EVENTS = [
         "timestamp": "2026-04-01T10:00:00.000Z",
         "data": {
             "sessionId": "abc12345-0000-0000-0000-000000000001",
-            "context": {"cwd": "/home/user/scrooge", "branch": "main"},
+            "context": {"cwd": "/home/user/nudge-mcp", "branch": "main"},
         },
     },
     {"type": "user.message",      "timestamp": "2026-04-01T10:01:00.000Z", "data": {}},

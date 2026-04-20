@@ -1,13 +1,13 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.jwill824/scrooge",
-  "title": "Scrooge",
-  "description": "MCP server for Claude Code and GitHub Copilot CLI session token usage and cost data",
+  "name": "io.github.jwill824/nudge-mcp",
+  "title": "Nudge",
+  "description": "MCP server that nudges better AI session behavior through token usage and efficiency analysis",
   "version": "0.1.0",
   "packages": [
     {
       "registryType": "pypi",
-      "identifier": "scrooge",
+      "identifier": "nudge-mcp",
       "version": "0.1.0",
       "transport": {
         "type": "stdio"

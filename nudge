@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Scrooge session report — Claude Code and GitHub Copilot CLI.
+Nudge session report — Claude Code and GitHub Copilot CLI.
 
 Usage:
-  scrooge                        # Claude sessions (all)
-  scrooge --last 20              # Last N Claude sessions
-  scrooge --today                # Today only
-  scrooge --month 2026-04        # Specific month
-  scrooge --session abc123       # One session by ID prefix
-  scrooge --copilot              # Copilot CLI sessions
-  scrooge --copilot --last 10    # Last N Copilot sessions
-  scrooge --copilot --month 2026-04
+  nudge                        # Claude sessions (all)
+  nudge --last 20              # Last N Claude sessions
+  nudge --today                # Today only
+  nudge --month 2026-04        # Specific month
+  nudge --session abc123       # One session by ID prefix
+  nudge --copilot              # Copilot CLI sessions
+  nudge --copilot --last 10    # Last N Copilot sessions
+  nudge --copilot --month 2026-04
 
 Pricing: calibrated from actual billing. To recalibrate:
   python3 calibrate.py <actual_billed>
@@ -27,7 +27,7 @@ from pathlib import Path
 _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 
-CSV_PATH = Path.home() / ".config" / "scrooge" / "sessions.csv"
+CSV_PATH = Path.home() / ".config" / "nudge" / "sessions.csv"
 COPILOT_SESSIONS_PATH = Path.home() / ".copilot" / "session-state"
 COPILOT_CONFIG_PATH = Path.home() / ".copilot" / "config.json"
 

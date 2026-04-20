@@ -1,12 +1,12 @@
 """
 Session stats configuration.
 
-Single source of truth: ~/.config/scrooge/config.json
+Single source of truth: ~/.config/nudge/config.json
 
 Priority (highest to lowest):
   1. Environment variables  MCP_CLAUDE_BUDGET, MCP_COPILOT_BUDGET,
                             MCP_DISCOUNT_FACTOR, MCP_CLAUDE_PLAN, MCP_COPILOT_PLAN
-  2. ~/.config/scrooge/config.json
+  2. ~/.config/nudge/config.json
   3. Built-in defaults
 
 Use load() to read, update(**kwargs) to write specific keys.
@@ -17,7 +17,7 @@ import json
 import os
 from pathlib import Path
 
-CONFIG_PATH = Path.home() / ".config" / "scrooge" / "config.json"
+CONFIG_PATH = Path.home() / ".config" / "nudge" / "config.json"
 
 DEFAULTS: dict = {
     "discount_factor":         0.5868,
