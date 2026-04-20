@@ -6,6 +6,9 @@ readme = "docs/README.md"
 requires-python = ">=3.12"
 dependencies = ["fastmcp>=2.0.0"]
 
+[project.scripts]
+nudge-mcp = "server:main"
+
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio"]
 
