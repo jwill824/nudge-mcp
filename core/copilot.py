@@ -1053,7 +1053,6 @@ def _copilot_premium_usage(args: dict) -> str:
     return "\n".join(lines)
 
 
-
 def _copilot_model_efficiency(args: dict) -> str:
     """Cross-session model efficiency report."""
     last  = int(args.get("last", 10))
@@ -1118,8 +1117,6 @@ def _copilot_model_efficiency(args: dict) -> str:
             "simple":    n_simple,
             "score":     eff_score,
             "flag":      flag,
-            "savings":   savings["savings_usd"],
-            "over":      n_over,
         })
 
         total_turns   += n_turns
