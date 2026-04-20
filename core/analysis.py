@@ -320,7 +320,8 @@ def _analyze_session_events(events: list[dict], session_id: str = "") -> dict:
     _session_model = ""
     for _e in events:
         if _e.get("type") == "session.model_change":
-            _session_model = _e.get("data", {}).get("newModel", _session_model)
+            _session_model = _e.get("data", {}).get("newModel", "")
+            break  # first change = session start model
     _model_turns   = analyze_session_model_usage(events, _session_model)
     _model_savings = _estimate_savings(_model_turns)
     _model_total   = _model_savings["total_turns"]
