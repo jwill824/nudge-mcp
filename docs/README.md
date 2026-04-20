@@ -11,42 +11,31 @@ Also includes a Stop hook that automatically logs each session to a CSV, and CLI
 ## Prerequisites
 
 - [Claude Code](https://claude.ai/code) and/or [GitHub Copilot CLI](https://githubnext.com/projects/copilot-cli) installed
-- Python 3.13+ via [uv](https://docs.astral.sh/uv/)
-
-Check that Python 3.13 is available:
-
-```bash
-uv python install 3.13
-uv run python --version
-```
+- [uv](https://docs.astral.sh/uv/) installed
 
 ---
 
 ## Installation
 
-### 1. Install dependencies
-
-```bash
-cd ~/Developer/personal/nudge-mcp
-uv pip install -e .
-```
-
-### 2. Register the MCP server
+### 1. Register the MCP server
 
 #### Claude Code
 
-Add to `~/.claude/settings.json` under `mcpServers`:
+```bash
+claude mcp add nudge-mcp -- uvx nudge-mcp
+```
+
+Or add manually to `~/.claude/settings.json` under `mcpServers`:
 
 ```json
 "mcpServers": {
   "nudge-mcp": {
-    "command": "/opt/homebrew/bin/uv",
-    "args": ["run", "--project", "/Users/YOUR_USERNAME/Developer/personal/nudge-mcp", "python", "/Users/YOUR_USERNAME/Developer/personal/nudge-mcp/server.py"]
+    "type": "stdio",
+    "command": "uvx",
+    "args": ["nudge-mcp"]
   }
 }
 ```
-
-Replace `YOUR_USERNAME` with your macOS username (`whoami`).
 
 #### GitHub Copilot CLI
 
@@ -57,16 +46,16 @@ Create (or update) `.mcp.json` in the repo root:
   "mcpServers": {
     "nudge-mcp": {
       "type": "stdio",
-      "command": "/opt/homebrew/bin/uv",
-      "args": ["run", "--project", "/Users/YOUR_USERNAME/Developer/personal/nudge-mcp", "python", "/Users/YOUR_USERNAME/Developer/personal/nudge-mcp/server.py"]
+      "command": "uvx",
+      "args": ["nudge-mcp"]
     }
   }
 }
 ```
 
-> **Note:** `.mcp.json` is gitignored because paths are machine-specific. Each contributor creates their own locally.
+> **Note:** `.mcp.json` is gitignored because it may contain machine-specific config. Each contributor creates their own locally.
 
-### 3. Wire up the Stop hook
+### 2. Wire up the Stop hook
 
 Add to `~/.claude/settings.json` under `hooks`:
 
@@ -75,7 +64,7 @@ Add to `~/.claude/settings.json` under `hooks`:
   "Stop": [{
     "hooks": [{
       "type": "command",
-      "command": "/opt/homebrew/bin/uv run --project /Users/YOUR_USERNAME/Developer/personal/nudge-mcp python /Users/YOUR_USERNAME/Developer/personal/nudge-mcp/log.py 2>/dev/null || true"
+      "command": "uvx nudge-mcp log 2>/dev/null || true"
     }]
   }]
 }
@@ -83,7 +72,7 @@ Add to `~/.claude/settings.json` under `hooks`:
 
 This automatically logs token usage to `~/.config/nudge/sessions.csv` every time a Claude Code session ends.
 
-### 4. Restart Claude Code
+### 3. Restart Claude Code
 
 The MCP server connects on startup. You should see `nudge-mcp` listed when you run `/mcp` in Claude Code.
 
@@ -300,30 +289,23 @@ Requires `record_copilot_spend` and `configure_subscription` (with `overage_budg
 ### Session report
 
 ```bash
-~/Developer/personal/nudge-mcp/nudge             # All Claude sessions
-~/Developer/personal/nudge-mcp/nudge --last 20   # Last N sessions
-~/Developer/personal/nudge-mcp/nudge --today     # Today only
-~/Developer/personal/nudge-mcp/nudge --month 2026-04
-~/Developer/personal/nudge-mcp/nudge --session abc123  # By session ID prefix
+uvx nudge-mcp nudge             # All Claude sessions
+uvx nudge-mcp nudge --last 20   # Last N sessions
+uvx nudge-mcp nudge --today     # Today only
+uvx nudge-mcp nudge --month 2026-04
+uvx nudge-mcp nudge --session abc123  # By session ID prefix
 
-~/Developer/personal/nudge-mcp/nudge --copilot             # Copilot CLI sessions
-~/Developer/personal/nudge-mcp/nudge --copilot --last 10
-~/Developer/personal/nudge-mcp/nudge --copilot --month 2026-04
-```
-
-Add the directory to your PATH for shorter invocations:
-
-```bash
-# In ~/.zshrc
-export PATH="$HOME/Developer/personal/nudge-mcp:$PATH"
+uvx nudge-mcp nudge --copilot             # Copilot CLI sessions
+uvx nudge-mcp nudge --copilot --last 10
+uvx nudge-mcp nudge --copilot --month 2026-04
 ```
 
 ### Recalibrate pricing
 
 ```bash
-uv run python ~/Developer/personal/nudge-mcp/calibrate.py 185.50
+uvx nudge-mcp calibrate 185.50
 # Specify a past month:
-uv run python ~/Developer/personal/nudge-mcp/calibrate.py 198.36 --month 2026-04
+uvx nudge-mcp calibrate 198.36 --month 2026-04
 ```
 
 ---
@@ -344,9 +326,7 @@ The `discount_factor` (default `0.5868` ≈ 41% off list) is applied uniformly. 
 ## Testing with MCP Inspector
 
 ```bash
-npx @modelcontextprotocol/inspector \
-  /opt/homebrew/bin/uv \
-  run --project ~/Developer/personal/nudge-mcp python ~/Developer/personal/nudge-mcp/server.py
+npx @modelcontextprotocol/inspector uvx nudge-mcp
 ```
 
 ---
