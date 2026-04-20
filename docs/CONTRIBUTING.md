@@ -37,9 +37,21 @@ Claude asks about usage
 
 1. Clone the repository
 2. Install dependencies: `uv pip install -e .`
-3. Create a feature branch: `git checkout -b feat/your-feature`
-4. Make your changes and commit following [Conventional Commits](https://www.conventionalcommits.org/)
-5. Open a pull request against `main`
+3. Register the MCP server locally — create `.mcp.json` in the repo root:
+   ```json
+   {
+     "mcpServers": {
+       "nudge-mcp": {
+         "type": "stdio",
+         "command": "uvx",
+         "args": ["--from", "/path/to/nudge-mcp", "nudge-mcp"]
+       }
+     }
+   }
+   ```
+4. Create a feature branch: `git checkout -b feat/your-feature`
+5. Make your changes and commit following [Conventional Commits](https://www.conventionalcommits.org/)
+6. Open a pull request against `main`
 
 ## Pull requests
 
@@ -73,9 +85,7 @@ Add an entry here when a new MCP plugin is added to your Claude Code setup. For 
 4. **Verify** with MCP Inspector:
 
 ```bash
-npx @modelcontextprotocol/inspector \
-  /opt/homebrew/bin/uv \
-  run --project ~/Developer/personal/nudge-mcp python ~/Developer/personal/nudge-mcp/server.py
+npx @modelcontextprotocol/inspector uvx --from . nudge-mcp
 ```
 
 ---
@@ -87,6 +97,24 @@ Edit `LIST_PRICES` in `pricing.py` to add new models or adjust prices. Recalibra
 ```bash
 uv run python calibrate.py <actual_billed>
 ```
+
+---
+
+## Packaging
+
+Top-level modules (`server.py`, `config.py`, `pricing.py`, etc.) are included in the wheel via the `include` list in `pyproject.toml`. If you add a new top-level `.py` file, add it there:
+
+```toml
+[tool.hatch.build.targets.wheel]
+include = [
+  "server.py",
+  "config.py",
+  ...
+  "your_new_module.py",
+]
+```
+
+Subdirectory packages (`core/`, `lib/`) are picked up automatically via their glob patterns.
 
 ---
 
