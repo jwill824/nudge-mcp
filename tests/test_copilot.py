@@ -35,13 +35,13 @@ async def test_copilot_session_report_today(client):
     assert isinstance(text, str)
 
 
-async def test_copilot_session_report_april_has_sessions(client):
+async def test_copilot_session_report_april_has_sessions(client, fake_copilot_sessions):
     result = await client.call_tool("copilot_session_report", {"month": "2026-04"})
     text = _result_text(result)
     assert "Sessions:" in text or "2026-04" in text
 
 
-async def test_copilot_session_report_output_tokens_nonzero(client):
+async def test_copilot_session_report_output_tokens_nonzero(client, fake_copilot_sessions):
     """April data exists and output tokens should now be parsed correctly."""
     result = await client.call_tool("copilot_session_report", {"month": "2026-04"})
     text = _result_text(result)
@@ -66,7 +66,7 @@ async def test_copilot_session_report_unknown_month(client):
 # copilot_monthly_summary
 # ---------------------------------------------------------------------------
 
-async def test_copilot_monthly_summary_april(client):
+async def test_copilot_monthly_summary_april(client, fake_copilot_sessions):
     result = await client.call_tool("copilot_monthly_summary", {"month": "2026-04"})
     text = _result_text(result)
     assert "2026-04" in text
@@ -155,7 +155,7 @@ async def test_analyze_copilot_session_no_args(client):
 async def test_analyze_copilot_session_invalid_prefix(client):
     result = await client.call_tool("analyze_copilot_session", {"session_id": "zzzzzzz"})
     text = _result_text(result)
-    assert "No session" in text or "zzzzzzz" in text
+    assert "No Copilot" in text or "No session" in text or "zzzzzzz" in text
 
 
 async def test_analyze_copilot_session_output_has_sections(client):
@@ -181,7 +181,7 @@ async def test_copilot_behavior_report_default(client):
 async def test_copilot_behavior_report_unknown_month(client):
     result = await client.call_tool("copilot_behavior_report", {"month": "1999-01"})
     text = _result_text(result)
-    assert "No sessions" in text or "1999-01" in text
+    assert "No Copilot" in text or "No sessions" in text or "1999-01" in text
 
 
 async def test_copilot_behavior_report_has_sections(client):

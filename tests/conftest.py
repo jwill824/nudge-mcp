@@ -45,6 +45,38 @@ SAMPLE_CSV_ROWS = [
 ]
 
 
+SAMPLE_COPILOT_EVENTS = [
+    {
+        "type": "session.start",
+        "timestamp": "2026-04-01T10:00:00.000Z",
+        "data": {
+            "sessionId": "abc12345-0000-0000-0000-000000000001",
+            "context": {"cwd": "/home/user/scrooge", "branch": "main"},
+        },
+    },
+    {"type": "user.message",      "timestamp": "2026-04-01T10:01:00.000Z", "data": {}},
+    {"type": "tool.execution_start", "timestamp": "2026-04-01T10:01:10.000Z",
+     "data": {"toolName": "view", "arguments": {}}},
+    {"type": "assistant.message", "timestamp": "2026-04-01T10:01:30.000Z",
+     "data": {"outputTokens": 1200}},
+    {"type": "user.message",      "timestamp": "2026-04-01T10:02:00.000Z", "data": {}},
+    {"type": "assistant.message", "timestamp": "2026-04-01T10:02:30.000Z",
+     "data": {"outputTokens": 800}},
+]
+
+
+@pytest.fixture
+def fake_copilot_sessions(tmp_path, monkeypatch):
+    """Create a fake ~/.copilot/session-state/ with April 2026 data and patch the path."""
+    session_dir = tmp_path / "abc12345-0000-0000-0000-000000000001"
+    session_dir.mkdir()
+    with open(session_dir / "events.jsonl", "w") as f:
+        for event in SAMPLE_COPILOT_EVENTS:
+            f.write(json.dumps(event) + "\n")
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
+    return tmp_path
+
+
 @pytest.fixture
 def fake_csv(tmp_path, monkeypatch):
     """Write sample CSV rows to a temp file and patch CSV_PATH in core.loaders."""

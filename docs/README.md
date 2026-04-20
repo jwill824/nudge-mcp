@@ -1,5 +1,7 @@
 # scrooge
 
+<!-- mcp-name: io.github.jwill824/scrooge -->
+
 MCP server that exposes Claude Code and GitHub Copilot CLI session token usage and cost data as tools, so your AI assistant can query its own usage mid-conversation.
 
 Also includes a Stop hook that automatically logs each session to a CSV, and CLI tools for reporting and pricing calibration.

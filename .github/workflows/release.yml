@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Calculate next version
+        id: version
+        uses: paulhatch/semantic-version@v5.4.0
+        with:
+          tag_prefix: "v"
+          major_pattern: "(BREAKING CHANGE|feat!|fix!|refactor!)"
+          minor_pattern: "feat:"
+          version_format: "${major}.${minor}.${patch}"
+          bump_each_commit: false
+
+      - name: Check if already released
+        id: check_tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "already_tagged=true" >> "$GITHUB_OUTPUT"
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --tags origin "refs/tags/v${{ steps.version.outputs.version }}" | grep -q .; then
+            # Tag pushed but release creation failed on a prior run — skip push, retry release
+            echo "already_tagged=false" >> "$GITHUB_OUTPUT"
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_tagged=false" >> "$GITHUB_OUTPUT"
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update pyproject.toml version
+        if: steps.check_tag.outputs.already_tagged == 'false'
+        run: |
+          python -c "
+          import re, pathlib
+          p = pathlib.Path('pyproject.toml')
+          content = p.read_text()
+          content = re.sub(
+              r'^version\s*=\s*\"[^\"]+\"',
+              'version = \"${{ steps.version.outputs.version }}\"',
+              content,
+              count=1,
+              flags=re.MULTILINE
+          )
+          p.write_text(content)
+          "
+
+      - name: Commit, tag, and push
+        if: steps.check_tag.outputs.already_tagged == 'false' && steps.check_tag.outputs.tag_exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git diff --staged --quiet || git commit -m "chore: bump version to v${{ steps.version.outputs.version }} [skip ci]"
+          git tag "v${{ steps.version.outputs.version }}"
+          git push --atomic origin HEAD "v${{ steps.version.outputs.version }}"
+
+      - name: Generate changelog
+        if: steps.check_tag.outputs.already_tagged == 'false'
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            LOG=$(git log HEAD^ --pretty=format:"- %s" | grep -E "^- (feat|fix|chore|refactor|docs|test|perf|ci|style|build)(\(|:|!)" || true)
+          else
+            LOG=$(git log "${PREV_TAG}..HEAD^" --pretty=format:"- %s" | grep -E "^- (feat|fix|chore|refactor|docs|test|perf|ci|style|build)(\(|:|!)" || true)
+          fi
+          if [ -z "$LOG" ]; then
+            LOG="- chore: version bump"
+          fi
+          echo "CHANGELOG<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$LOG" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: steps.check_tag.outputs.already_tagged == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGELOG: ${{ steps.changelog.outputs.CHANGELOG }}
+        run: |
+          printf '%s' "$CHANGELOG" > $GITHUB_WORKSPACE/release-notes.md
+          gh release create "v${{ steps.version.outputs.version }}" \
+            --title "v${{ steps.version.outputs.version }}" \
+            --notes-file $GITHUB_WORKSPACE/release-notes.md
