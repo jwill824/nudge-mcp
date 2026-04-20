@@ -4,6 +4,9 @@ on:
   push:
     branches-ignore:
       - main
+  pull_request:
+    branches:
+      - main
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,6 +17,7 @@ permissions:
 
 jobs:
   test:
+    name: ci / test
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
