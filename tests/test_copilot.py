@@ -22,6 +22,7 @@ from core.copilot import (
     _record_copilot_spend,
     _copilot_budget_forecast,
     _copilot_premium_usage,
+    _copilot_model_efficiency,
 )
 
 
@@ -673,3 +674,41 @@ def test_copilot_tool_impact_invalid_month(monkeypatch):
     ])
     result = _copilot_tool_impact({"tool": "bash", "month": "2099-12"})
     assert "No Copilot CLI session data found for" in result
+
+
+# ---------------------------------------------------------------------------
+# copilot_model_efficiency
+# ---------------------------------------------------------------------------
+
+
+def test_copilot_model_efficiency_no_sessions(tmp_path, monkeypatch):
+    monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
+    result = _copilot_model_efficiency({})
+    assert "No Copilot" in result
+
+
+def test_copilot_model_efficiency_returns_string(fake_copilot_sessions):
+    result = _copilot_model_efficiency({})
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_copilot_model_efficiency_contains_header(fake_copilot_sessions):
+    result = _copilot_model_efficiency({})
+    assert "Model Efficiency" in result
+
+
+def test_copilot_model_efficiency_contains_efficiency_score(fake_copilot_sessions):
+    result = _copilot_model_efficiency({})
+    assert "/ 100" in result
+
+
+def test_copilot_model_efficiency_month_filter_no_match(fake_copilot_sessions):
+    result = _copilot_model_efficiency({"month": "1999-01"})
+    assert "No" in result
+
+
+async def test_copilot_model_efficiency_mcp_tool(client, fake_copilot_sessions):
+    result = await client.call_tool("copilot_model_efficiency", {"last": 5})
+    text = _result_text(result)
+    assert isinstance(text, str)

@@ -106,7 +106,7 @@ def test_tok_per_turn_zero_turns_fallback():
 
 async def test_list_tools_count(client):
     tools = await client.list_tools()
-    assert len(tools) == 13
+    assert len(tools) == 14
 
 
 async def test_list_tools_names(client):
@@ -126,6 +126,7 @@ async def test_list_tools_names(client):
         "record_copilot_spend",
         "copilot_budget_forecast",
         "copilot_tool_impact",
+        "copilot_model_efficiency",
     }
 
 
