@@ -1,9 +1,9 @@
 {
   "mcpServers": {
-    "scrooge": {
+    "nudge-mcp": {
       "type": "stdio",
-      "command": "/opt/homebrew/bin/uv",
-      "args": ["run", "--project", "/Users/jeff.williams/Developer/personal/scrooge", "python", "/Users/jeff.williams/Developer/personal/scrooge/server.py"]
+      "command": "uvx",
+      "args": ["--from", "/Users/jeff.williams/Developer/personal/nudge-mcp", "nudge-mcp"]
     }
   }
 }

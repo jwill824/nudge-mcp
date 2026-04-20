@@ -41,6 +41,7 @@ Or add manually to `~/.claude/settings.json` under `mcpServers`:
 
 Create (or update) `.mcp.json` in the repo root:
 
+**Published package (default):**
 ```json
 {
   "mcpServers": {
@@ -48,6 +49,19 @@ Create (or update) `.mcp.json` in the repo root:
       "type": "stdio",
       "command": "uvx",
       "args": ["nudge-mcp"]
+    }
+  }
+}
+```
+
+**Local development:**
+```json
+{
+  "mcpServers": {
+    "nudge-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["--from", "/path/to/nudge-mcp", "nudge-mcp"]
     }
   }
 }
