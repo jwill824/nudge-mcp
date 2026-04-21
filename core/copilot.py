@@ -108,6 +108,8 @@ def _copilot_tool_impact(args: dict) -> str:
         }
 
     wa = avgs(with_sessions)
+    if wa is None:
+        return f"No sessions found using '{query}'."
     wo = avgs(sessions_without)
 
     # Cost estimates: use recorded spend / total turns as cost-per-turn proxy

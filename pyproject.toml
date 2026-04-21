@@ -40,8 +40,13 @@ ignore = ["E501"]
 "server.py" = ["E402"]
 "tests/conftest.py" = ["E402"]
 
-[dependency-groups]
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+reportPrivateUsage = false
+
 dev = [
+    "pyright>=1.1.408",
     "pytest>=9.0.3",
     "ruff>=0.15.11",
 ]

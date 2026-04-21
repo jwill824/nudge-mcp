@@ -315,7 +315,7 @@ def test_copilot_premium_usage_403(monkeypatch):
     monkeypatch.setenv("GITHUB_USER", "testuser")
 
     def raise_403(*a, **kw):
-        raise urllib.error.HTTPError(None, 403, "Forbidden", {}, None)
+        raise urllib.error.HTTPError("https://api.github.com", 403, "Forbidden", {}, None)  # type: ignore[arg-type]
 
     monkeypatch.setattr(urllib.request, "urlopen", raise_403)
     result = _copilot_premium_usage({"month": "2026-04"})
@@ -329,7 +329,7 @@ def test_copilot_premium_usage_404(monkeypatch):
     monkeypatch.setenv("GITHUB_USER", "testuser")
 
     def raise_404(*a, **kw):
-        raise urllib.error.HTTPError(None, 404, "Not Found", {}, None)
+        raise urllib.error.HTTPError("https://api.github.com", 404, "Not Found", {}, None)  # type: ignore[arg-type]
 
     monkeypatch.setattr(urllib.request, "urlopen", raise_404)
     result = _copilot_premium_usage({"month": "2026-04"})

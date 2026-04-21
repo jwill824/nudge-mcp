@@ -355,6 +355,7 @@ def _tool_impact(args: dict) -> str:
         }
 
     wa = avgs(with_rows)
+    assert wa is not None  # guaranteed: sessions_with is non-empty (checked above)
     wo = avgs(sessions_without)
 
     MIN_SESSIONS_FOR_RELIABLE_DATA = 10
