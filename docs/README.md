@@ -296,14 +296,17 @@ Analyse how well the active model matched task complexity across Copilot CLI ses
 
 ## Pricing Model
 
-| Token type | List price | Notes |
-|-----------|-----------|-------|
-| Input | $3.00/MTok | |
-| Output | $15.00/MTok | |
-| Cache read | $0.30/MTok | Cheapest — high cache hit % = efficiency |
-| Cache creation | $3.75/MTok | |
+Costs are calculated per-model using Anthropic API list prices, then scaled by a `discount_factor`:
 
-The `discount_factor` (default `0.5868` ≈ 41% off list) is applied uniformly. Recalibrate monthly for accuracy.
+| Model | Input | Output | Cache read | Cache create |
+|-------|-------|--------|------------|--------------|
+| Claude Sonnet 4.6 | $3.00/MTok | $15.00/MTok | $0.30/MTok | $3.75/MTok |
+| Claude Haiku 4.5  | $0.80/MTok | $4.00/MTok  | $0.08/MTok | $1.00/MTok  |
+| Claude Opus 4.6   | $15.00/MTok | $75.00/MTok | $1.50/MTok | $18.75/MTok |
+
+The model used is detected per-turn from the JSONL (`message.model`), so Opus sessions are priced at Opus rates automatically.
+
+The `discount_factor` (default `0.5868` ≈ 41% off list) approximates subscription value vs API list price. Recalibrate monthly with `claude_calibrate_pricing` for accuracy.
 
 ---
 
@@ -337,7 +340,7 @@ npx @modelcontextprotocol/inspector uvx nudge-mcp
 
 ## Data
 
-Claude Code session data is read directly from `~/.claude/projects/`. No setup required — sessions are parsed from JSONL files that Claude Code writes automatically.
+Claude Code session data is read directly from `~/.claude/projects/`. No setup required — sessions are parsed from JSONL files that Claude Code writes automatically. The model used is detected per-turn from `message.model` in the JSONL, enabling accurate per-model cost calculations.
 
 Copilot CLI session data is read from `~/.copilot/session-state/`.
 

@@ -4,132 +4,263 @@
 
 ```
 nudge-mcp/
-├── server.py            # MCP server — tool definitions and handlers
-├── log.py               # Stop hook — parses JSONL, writes CSV row
-├── nudge                # CLI report — reads CSV, formats table
-├── pricing.py           # Shared pricing config — discount factor, cost estimator
-├── calibrate.py         # CLI calibration — derives discount factor from actual billing
+├── server.py            # MCP server — @mcp.tool wrappers and entry point
+├── pricing.py           # Pricing tables and cost estimator
 ├── config.py            # Config loader — ~/.config/nudge/config.json
-├── pyproject.toml       # Project metadata (requires Python ≥3.12)
+├── pyproject.toml       # Project metadata, dependencies, tool config
+├── core/
+│   ├── loaders.py       # Data loading — Claude JSONL + Copilot session-state
+│   ├── claude.py        # Claude tool implementations
+│   ├── copilot.py       # Copilot tool implementations + GitHub API helpers
+│   └── analysis.py      # Copilot session analysis engine
 ├── tests/               # pytest test suite
-└── lib/                 # Bundled dependencies (not committed; regenerate with uv)
+│   ├── conftest.py      # Shared fixtures (fake session data)
+│   ├── test_claude.py
+│   ├── test_copilot.py
+│   ├── test_loaders.py
+│   └── test_analysis.py
+└── docs/
+    ├── README.md
+    └── CONTRIBUTING.md
 ```
 
 **Data flow:**
 
 ```
-Claude Code session ends
-  → Stop hook (log.py)
-      → reads session JSONL from ~/.claude/projects/
-      → imports pricing.py for cost estimate
-      → appends row to ~/.config/nudge/sessions.csv
+Claude Code session
+  → ~/.claude/projects/{project}/{session}.jsonl  (written by Claude Code)
+  → core/loaders.load_claude_sessions()           (parsed by nudge-mcp)
+  → core/claude.*                                  (tool implementations)
 
-Claude asks about usage
-  → MCP server (server.py)
-      → session_report / monthly_summary  →  reads sessions.csv
-      → monthly_summary (detailed)        →  also reads JSONL directly
-      → calibrate_pricing                 →  calls calibrate.py subprocess
+Copilot CLI session
+  → ~/.copilot/session-state/{session}/events.jsonl
+  → core/loaders.load_copilot_sessions()
+  → core/copilot.*
 ```
 
 ---
 
-## Getting started
+## Getting Started
 
-1. Clone the repository
-2. Install dependencies: `uv pip install -e .`
-3. Register the MCP server locally — create `.mcp.json` in the repo root:
-   ```json
-   {
-     "mcpServers": {
-       "nudge-mcp": {
-         "type": "stdio",
-         "command": "uvx",
-         "args": ["--from", "/path/to/nudge-mcp", "nudge-mcp"]
-       }
-     }
-   }
-   ```
-4. Create a feature branch: `git checkout -b feat/your-feature`
-5. Make your changes and commit following [Conventional Commits](https://www.conventionalcommits.org/)
-6. Open a pull request against `main`
+### 1. Install uv
 
-## Pull requests
+```bash
+curl -Lsf https://astral.sh/uv/install.sh | sh
+```
 
-- Squash merge only — one commit per PR
-- PR title must follow Conventional Commits format
-- Link to the relevant issue in the PR description
+### 2. Clone and install
 
----
+```bash
+git clone https://github.com/jwill824/nudge-mcp
+cd nudge-mcp
+uv sync
+```
 
-## Registering a New Tool for Impact Analysis
+`uv sync` installs all dependencies (including dev) from the lockfile into a `.venv`.
 
-The `tool_impact` tool uses a lookup table in `server.py` to map short friendly names to full MCP tool name prefixes:
+### 3. Register the MCP server locally
 
-```python
-_MCP_PREFIXES = {
-    "serena":   "mcp__plugin_serena_serena__",
-    "ck":       "mcp__ck-search__",
-    "context7": "mcp__plugin_context7_context7__",
+Create `.mcp.json` in the repo root (gitignored — each contributor creates their own):
+
+```json
+{
+  "mcpServers": {
+    "nudge-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["--from", "/path/to/nudge-mcp", "nudge-mcp"]
+    }
+  }
 }
 ```
 
-Add an entry here when a new MCP plugin is added to your Claude Code setup. For bash-invoked tools (like `ast-grep`, `rg`, `jq`), no registration is needed — they're matched as whole words inside bash commands automatically.
+### 4. Run checks
+
+```bash
+uv run ruff check .          # lint
+uv run pyright               # type check
+uv run --extra dev pytest tests/ -q  # tests
+```
+
+---
+
+## Working with uv
+
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management and running scripts.
+
+### Key commands
+
+| Command | Purpose |
+|---------|---------|
+| `uv sync` | Install all deps from lockfile (creates `.venv`) |
+| `uv run <cmd>` | Run a command in the project environment |
+| `uv add <pkg>` | Add a runtime dependency |
+| `uv add --dev <pkg>` | Add a dev-only dependency |
+| `uv remove <pkg>` | Remove a dependency |
+| `uv lock` | Regenerate `uv.lock` after manual edits to `pyproject.toml` |
+
+### Adding a runtime dependency
+
+```bash
+uv add fastmcp
+```
+
+This updates `pyproject.toml` (`[project] dependencies`) and regenerates `uv.lock`. Commit both files.
+
+### Adding a dev dependency
+
+Dev dependencies (linters, type checkers, test frameworks) live in `[dependency-groups]` and are never bundled into the published package.
+
+```bash
+uv add --dev ruff
+uv add --dev pyright
+uv add --dev pytest
+```
+
+### Running tools without installing
+
+```bash
+uvx ruff check .       # run ruff from the registry without installing
+uvx nudge-mcp          # run the published package directly (for testing)
+uvx --from . nudge-mcp # run the local checkout as if published
+```
+
+### pyproject.toml structure
+
+```toml
+[project]
+dependencies = ["fastmcp>=2.0.0"]   # runtime — bundled in the wheel
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio"]  # legacy optional group (used by CI --extra dev)
+
+[dependency-groups]
+dev = ["ruff>=0.15", "pyright>=1.1", "pytest>=9.0"]  # uv-native dev group
+```
+
+> **Note:** We have both `[project.optional-dependencies].dev` (for `uv run --extra dev`) and `[dependency-groups].dev` (for `uv sync`). New dev tools should go in `[dependency-groups].dev`.
+
+---
+
+## Linting and Type Checking
+
+### ruff
+
+ruff is our linter. Config lives in `pyproject.toml`:
+
+```toml
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]                    # long lines are tolerated
+
+[tool.ruff.lint.per-file-ignores]
+"server.py" = ["E402"]              # sys.path setup before imports is intentional
+"tests/conftest.py" = ["E402"]
+```
+
+Run:
+```bash
+uv run ruff check .          # check
+uv run ruff check . --fix    # auto-fix what it can
+```
+
+ruff catches: unused imports, undefined names, style violations. It does **not** catch type errors.
+
+### pyright
+
+pyright is our type checker. Config lives in `pyproject.toml`:
+
+```toml
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+reportPrivateUsage = false
+```
+
+Run:
+```bash
+uv run pyright
+```
+
+pyright catches: type mismatches, `None` subscript errors, missing attributes. ruff does not catch these.
+
+> Use `# type: ignore[<rule>]` inline to suppress false positives in test files. Keep these minimal and always include the rule name.
+
+---
+
+## Testing
+
+Tests live in `tests/` and use pytest with `pytest-asyncio` (all async tests run automatically).
+
+```bash
+uv run --extra dev pytest tests/ -q         # all tests
+uv run --extra dev pytest tests/test_claude.py -q  # single file
+uv run --extra dev pytest -k "test_model"   # filter by name
+```
+
+### Fixtures
+
+Shared fixtures are in `tests/conftest.py`:
+
+- **`fake_claude_sessions`** — creates 3 JSONL session files in a temp directory and patches `core.loaders.CLAUDE_PROJECTS_PATH`. Sessions: `proj-alpha` (Sonnet, Apr 1), `proj-beta` (Opus, Apr 2), `proj-gamma` (Sonnet, Mar 15).
+- **`fake_copilot_sessions`** — creates a fake `~/.copilot/session-state/` with one April 2026 session.
+- **`client`** — async FastMCP test client for end-to-end tool/resource testing.
+
+### Patching core paths
+
+Always patch the path constants rather than touching real user data:
+
+```python
+monkeypatch.setattr(core.loaders, "CLAUDE_PROJECTS_PATH", tmp_path)
+monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
+```
 
 ---
 
 ## Adding a New MCP Tool
 
-1. **Define the tool** as a function decorated with `@mcp.tool` in `server.py`
-2. **Implement** it as a plain function returning a string
-3. **Test** it in `tests/test_server.py`
-4. **Verify** with MCP Inspector:
+1. **Implement** the handler in `core/claude.py` or `core/copilot.py` as a plain function `my_tool(args: dict) -> str`
+2. **Import** it in `server.py` with an alias: `from core.copilot import my_tool as _my_tool`
+3. **Register** a `@mcp.tool` wrapper in `server.py` with typed parameters and a docstring
+4. **Add tests** in `tests/test_claude.py` or `tests/test_copilot.py`
+5. **Document** in `docs/README.md` under MCP Tools
 
-```bash
-npx @modelcontextprotocol/inspector uvx --from . nudge-mcp
-```
+The `_impl` alias pattern (`my_tool as _my_tool`) avoids name collisions between the imported handler and the `@mcp.tool` wrapper function.
 
 ---
 
 ## Updating Pricing
 
-Edit `LIST_PRICES` in `pricing.py` to add new models or adjust prices. Recalibrate after each billing cycle:
-
-```bash
-uv run python calibrate.py <actual_billed>
-```
+Edit `LIST_PRICES` in `pricing.py` to add new models or update prices. The model is detected per-turn from `message.model` in the Claude JSONL — no other changes needed for new models to be priced correctly.
 
 ---
 
 ## Packaging
 
-Top-level modules (`server.py`, `config.py`, `pricing.py`, etc.) are included in the wheel via the `include` list in `pyproject.toml`. If you add a new top-level `.py` file, add it there:
+Top-level modules are listed explicitly in `pyproject.toml`:
 
 ```toml
 [tool.hatch.build.targets.wheel]
 include = [
   "server.py",
   "config.py",
-  ...
-  "your_new_module.py",
+  "pricing.py",
+  "core/**/*.py",
 ]
 ```
 
-Subdirectory packages (`core/`, `lib/`) are picked up automatically via their glob patterns.
+If you add a new top-level `.py` file, add it here. Subdirectory packages (`core/`) are included via glob.
 
 ---
 
-## Dependencies
+## Pull Requests
 
-Dependencies are bundled in `lib/` (installed via `uv pip install -e .`). The `lib/` directory is excluded from git. To reinstall:
+- Create a feature branch: `git checkout -b feat/your-feature`
+- Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit messages
+- All CI checks must pass: lint (ruff + pyright) and tests
+- Squash merge only — one commit per PR
+- PR title must follow Conventional Commits format
 
-```bash
-uv pip install -e .
-```
-
-Do not add runtime dependencies that aren't needed by all three entry points (`server.py`, `log.py`, `nudge`). The Stop hook runs on every session end and must be fast and reliable.
-
----
-
-## Python Version
-
-Requires Python 3.13+ (uv-managed). Use `uv run` — it reads `pyproject.toml` and resolves the correct Python version automatically.

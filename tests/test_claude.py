@@ -227,6 +227,85 @@ async def test_session_report_shows_summary_line(client, fake_claude_sessions):
 
 
 # ---------------------------------------------------------------------------
+# Model detection
+# ---------------------------------------------------------------------------
+
+def test_load_claude_sessions_detects_model(fake_claude_sessions):
+    """Each session should have a 'model' field derived from the JSONL message.model."""
+    from core.loaders import load_claude_sessions
+    sessions = load_claude_sessions()
+    by_project = {s["project"]: s for s in sessions}
+    assert by_project["proj-alpha"]["model"] == "claude-sonnet-4-6"
+    assert by_project["proj-beta"]["model"] == "claude-opus-4-6"
+    assert by_project["proj-gamma"]["model"] == "claude-sonnet-4-6"
+
+
+def test_load_claude_sessions_models_list(fake_claude_sessions):
+    """Single-model sessions have a one-element models list."""
+    from core.loaders import load_claude_sessions
+    sessions = load_claude_sessions()
+    for s in sessions:
+        assert isinstance(s["models"], list)
+        assert len(s["models"]) >= 1
+
+
+def test_load_claude_sessions_opus_costs_more_than_sonnet(fake_claude_sessions):
+    """Opus sessions should be priced at higher rates than equivalent-size Sonnet sessions."""
+    from core.loaders import load_claude_sessions
+    sessions = load_claude_sessions()
+    by_project = {s["project"]: s for s in sessions}
+    # proj-beta (opus) has fewer tokens than proj-alpha (sonnet) but should still cost more per token
+    opus_cost = by_project["proj-beta"]["est_cost_usd"]
+    sonnet_cost = by_project["proj-alpha"]["est_cost_usd"]
+    # Opus output is 5x more expensive — even with fewer total tokens it should be higher per output token
+    opus_out = by_project["proj-beta"]["output_tokens"]
+    sonnet_out = by_project["proj-alpha"]["output_tokens"]
+    assert opus_cost / opus_out > sonnet_cost / sonnet_out
+
+
+def test_load_claude_sessions_skips_synthetic_model(tmp_path, monkeypatch):
+    """Entries with model '<synthetic>' should be excluded from token/cost counts."""
+    import json
+    import core.loaders
+
+    synthetic_jsonl = [
+        {"type": "user", "timestamp": "2026-04-10T10:00:00.000Z", "cwd": "/home/user/proj-synth"},
+        {"type": "assistant", "timestamp": "2026-04-10T10:01:00.000Z", "message": {
+            "model": "<synthetic>",
+            "usage": {"input_tokens": 9999, "output_tokens": 9999},
+            "content": [],
+        }},
+        {"type": "assistant", "timestamp": "2026-04-10T10:02:00.000Z", "message": {
+            "model": "claude-sonnet-4-6",
+            "usage": {"input_tokens": 100, "output_tokens": 50},
+            "content": [],
+        }},
+    ]
+    path = tmp_path / "proj-synth" / "dddddddd-0000-0000-0000-000000000004.jsonl"
+    path.parent.mkdir(parents=True)
+    with open(path, "w") as f:
+        for entry in synthetic_jsonl:
+            f.write(json.dumps(entry) + "\n")
+
+    monkeypatch.setattr(core.loaders, "CLAUDE_PROJECTS_PATH", tmp_path)
+    sessions = core.loaders.load_claude_sessions()
+    assert len(sessions) == 1
+    s = sessions[0]
+    # Only the real sonnet entry counts — synthetic tokens excluded
+    assert s["input_tokens"] == 100
+    assert s["output_tokens"] == 50
+    assert s["model"] == "claude-sonnet-4-6"
+
+
+async def test_session_report_shows_model_column(client, fake_claude_sessions):
+    """Session report table should include the model name."""
+    result = await client.call_tool("claude_session_report", {"month": "2026-04"})
+    text = _result_text(result)
+    assert "sonnet-4-6" in text
+    assert "opus-4-6" in text
+
+
+# ---------------------------------------------------------------------------
 # monthly_summary
 # ---------------------------------------------------------------------------
 

@@ -27,6 +27,7 @@ def _result_text(result) -> str:
 _ALPHA_JSONL = [
     {"type": "user",      "timestamp": "2026-04-01T10:00:00.000Z", "cwd": "/home/user/proj-alpha", "gitBranch": "main"},
     {"type": "assistant", "timestamp": "2026-04-01T10:15:00.000Z", "message": {
+        "model": "claude-sonnet-4-6",
         "usage": {"input_tokens": 2000, "output_tokens": 1000, "cache_read_input_tokens": 8000, "cache_creation_input_tokens": 500},
         "content": [{"type": "tool_use", "name": "Read", "input": {}}, {"type": "tool_use", "name": "Grep", "input": {}}],
     }},
@@ -35,6 +36,7 @@ _ALPHA_JSONL = [
 _BETA_JSONL = [
     {"type": "user",      "timestamp": "2026-04-02T11:00:00.000Z", "cwd": "/home/user/proj-beta", "gitBranch": "main"},
     {"type": "assistant", "timestamp": "2026-04-02T11:08:00.000Z", "message": {
+        "model": "claude-opus-4-6",
         "usage": {"input_tokens": 4000, "output_tokens": 1000, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 500},
         "content": [{"type": "tool_use", "name": "Bash", "input": {}}],
     }},
@@ -43,6 +45,7 @@ _BETA_JSONL = [
 _GAMMA_JSONL = [
     {"type": "user",      "timestamp": "2026-03-15T09:00:00.000Z", "cwd": "/home/user/proj-gamma", "gitBranch": "main"},
     {"type": "assistant", "timestamp": "2026-03-15T09:05:00.000Z", "message": {
+        "model": "claude-sonnet-4-6",
         "usage": {"input_tokens": 1000, "output_tokens": 500, "cache_read_input_tokens": 4000, "cache_creation_input_tokens": 200},
         "content": [{"type": "tool_use", "name": "Read", "input": {}}],
     }},
