@@ -1,7 +1,7 @@
 """
 Tests for core/claude.py and MCP server tool/resource discovery.
 
-Uses the `client` and `fake_csv` fixtures from conftest.py.
+Uses the `client` and `fake_claude_sessions` fixtures from conftest.py.
 """
 
 import csv
@@ -11,7 +11,7 @@ from pathlib import Path
 from fastmcp.client import Client
 from fastmcp.client.transports import FastMCPTransport
 
-from conftest import _result_text, SAMPLE_CSV_ROWS
+from conftest import _result_text
 
 import core.claude
 from core.loaders import fmt
@@ -182,14 +182,14 @@ async def test_session_report_no_data_returns_message(client):
 # session_report — with synthetic CSV data
 # ---------------------------------------------------------------------------
 
-async def test_session_report_with_data_shows_rows(client, fake_csv):
+async def test_session_report_with_data_shows_rows(client, fake_claude_sessions):
     result = await client.call_tool("claude_session_report", {})
     text = _result_text(result)
     assert "proj-alpha" in text
     assert "proj-beta" in text
 
 
-async def test_session_report_month_filter_april(client, fake_csv):
+async def test_session_report_month_filter_april(client, fake_claude_sessions):
     result = await client.call_tool("claude_session_report", {"month": "2026-04"})
     text = _result_text(result)
     assert "proj-alpha" in text
@@ -197,14 +197,14 @@ async def test_session_report_month_filter_april(client, fake_csv):
     assert "proj-gamma" not in text  # March session excluded
 
 
-async def test_session_report_month_filter_march(client, fake_csv):
+async def test_session_report_month_filter_march(client, fake_claude_sessions):
     result = await client.call_tool("claude_session_report", {"month": "2026-03"})
     text = _result_text(result)
     assert "proj-gamma" in text
     assert "proj-alpha" not in text
 
 
-async def test_session_report_last_limits_results(client, fake_csv):
+async def test_session_report_last_limits_results(client, fake_claude_sessions):
     result = await client.call_tool("claude_session_report", {"last": 1})
     text = _result_text(result)
     # With last=1 only the final row (proj-gamma is 3rd chronologically)
@@ -212,20 +212,20 @@ async def test_session_report_last_limits_results(client, fake_csv):
     assert text.count("proj-") == 1
 
 
-async def test_session_report_today_returns_no_data_for_old_csv(client, fake_csv):
+async def test_session_report_today_returns_no_data_for_old_csv(client, fake_claude_sessions):
     result = await client.call_tool("claude_session_report", {"today": True})
     text = _result_text(result)
     # Sample data is from 2026-04-01/02 and 2026-03-15, not today
     assert "No sessions found" in text or "proj-alpha" not in text
 
 
-async def test_session_report_shows_cost(client, fake_csv):
+async def test_session_report_shows_cost(client, fake_claude_sessions):
     result = await client.call_tool("claude_session_report", {"month": "2026-04"})
     text = _result_text(result)
     assert "$" in text
 
 
-async def test_session_report_shows_summary_line(client, fake_csv):
+async def test_session_report_shows_summary_line(client, fake_claude_sessions):
     result = await client.call_tool("claude_session_report", {"month": "2026-04"})
     text = _result_text(result)
     assert "Sessions:" in text
@@ -270,32 +270,34 @@ async def test_tool_impact_empty_string(client):
     assert "provide" in text.lower()
 
 
-async def test_tool_impact_with_data_and_known_tool(client, fake_csv):
+async def test_tool_impact_with_data_and_known_tool(client, fake_claude_sessions):
     result = await client.call_tool("claude_tool_impact", {"tool": "Read"})
     text = _result_text(result)
     # "Read" appears in two of the three sample sessions
     assert "Read" in text or "Tool Impact" in text
 
 
-def test_tool_impact_low_sample_disclaimer(fake_csv):
-    # fake_csv has only 3 sessions; "Read" appears in 2 — below threshold of 10
+def test_tool_impact_low_sample_disclaimer(fake_claude_sessions):
+    # 3 sessions; "Read" appears in 2 — below threshold of 10
     result = _tool_impact({"tool": "Read"})
     assert "⚠️  Low sample size" in result
 
 
 def test_tool_impact_no_disclaimer_when_sufficient(monkeypatch):
     # Build 10 sessions all using "Read"
-    rows = [
+    sessions = [
         {
             "date": f"2026-04-{i+1:02d} 10:00", "session_id": f"s{i:07d}",
-            "project": "proj", "input_tokens": "5000", "output_tokens": "1000",
-            "cache_read_tokens": "3000", "cache_creation_tokens": "500",
-            "total_tokens": "9500", "turns": "5", "duration_min": "10",
-            "est_cost_usd": "0.05", "cache_hit_pct": "60.0",
-            "tool_calls": "Read,Read", "model": "claude-sonnet-4.6",
+            "project": "proj", "branch": "main",
+            "input_tokens": 5000, "output_tokens": 1000,
+            "cache_read_tokens": 3000, "cache_create_tokens": 500,
+            "total_tokens": 9500, "turns": 5, "duration_min": 10.0,
+            "est_cost_usd": 0.05, "cache_hit_pct": 60.0,
+            "tools": "Read", "jsonl_path": "",
         }
         for i in range(10)
     ]
-    monkeypatch.setattr(core.claude, "load_csv", lambda: rows)
+    import core.loaders
+    monkeypatch.setattr(core.loaders, "load_claude_sessions", lambda: sessions)
     result = _tool_impact({"tool": "Read"})
     assert "⚠️  Low sample size" not in result

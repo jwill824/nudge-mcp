@@ -3,18 +3,17 @@ Data loading layer for Nudge.
 
 Responsibilities:
   - Path constants for data directories
-  - Loading Claude session data from CSV
+  - Loading Claude session data from JSONL
   - Loading Copilot CLI session-state from disk
   - Loading Copilot session events from JSONL
 """
 
-import csv
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-CSV_PATH = Path.home() / ".config" / "nudge" / "sessions.csv"
+CLAUDE_PROJECTS_PATH = Path.home() / ".claude" / "projects"
 COPILOT_SESSIONS_PATH = Path.home() / ".copilot" / "session-state"
 COPILOT_CONFIG_PATH = Path.home() / ".copilot" / "config.json"
 
@@ -28,11 +27,112 @@ def fmt(n: int) -> str:
     return str(n)
 
 
-def load_csv() -> list[dict]:
-    if not CSV_PATH.exists():
+def load_claude_sessions() -> list[dict]:
+    """Parse all Claude Code sessions from ~/.claude/projects/*/*.jsonl."""
+    if not CLAUDE_PROJECTS_PATH.exists():
         return []
-    with open(CSV_PATH) as f:
-        return list(csv.DictReader(f))
+
+    try:
+        import config as _cfg
+        discount = _cfg.load().get("discount_factor", 0.5868)
+    except Exception:
+        discount = 0.5868
+
+    from pricing import estimate_cost
+
+    sessions = []
+    for project_dir in CLAUDE_PROJECTS_PATH.iterdir():
+        if not project_dir.is_dir():
+            continue
+        for jsonl_file in project_dir.glob("*.jsonl"):
+            session_id = jsonl_file.stem
+            entries = []
+            try:
+                with open(jsonl_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entries.append(json.loads(line))
+                        except Exception:
+                            pass
+            except Exception:
+                continue
+
+            assistant_entries = [e for e in entries if e.get("type") == "assistant"]
+            if not assistant_entries:
+                continue
+
+            input_tok = output_tok = cache_read_tok = cache_create_tok = 0
+            tools_used: set[str] = set()
+            for e in assistant_entries:
+                usage = e.get("message", {}).get("usage", {})
+                input_tok        += usage.get("input_tokens", 0)
+                output_tok       += usage.get("output_tokens", 0)
+                cache_read_tok   += usage.get("cache_read_input_tokens", 0)
+                cache_create_tok += usage.get("cache_creation_input_tokens", 0)
+                for block in e.get("message", {}).get("content", []):
+                    if block.get("type") == "tool_use":
+                        name = block.get("name", "")
+                        if name:
+                            tools_used.add(name)
+
+            cwd = branch = ""
+            for e in entries:
+                if not cwd and e.get("cwd"):
+                    cwd = e["cwd"]
+                if not branch and e.get("gitBranch"):
+                    branch = e["gitBranch"]
+
+            project = Path(cwd).name[:12] if cwd else project_dir.name[:12]
+
+            timestamps = sorted(
+                datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00"))
+                for e in entries if "timestamp" in e
+            )
+            if not timestamps:
+                continue
+
+            date_str = timestamps[0].strftime("%Y-%m-%d %H:%M")
+            duration_min = (
+                round((timestamps[-1] - timestamps[0]).total_seconds() / 60, 1)
+                if len(timestamps) >= 2 else 0.0
+            )
+
+            total_tok = input_tok + output_tok + cache_read_tok + cache_create_tok
+            denom = cache_read_tok + input_tok
+            cache_hit_pct = round(cache_read_tok / denom * 100, 1) if denom > 0 else 0.0
+            turns = len(assistant_entries)
+
+            try:
+                cost = round(estimate_cost({
+                    "input": input_tok, "output": output_tok,
+                    "cache_read": cache_read_tok, "cache_create": cache_create_tok,
+                }, discount=discount), 4)
+            except Exception:
+                cost = 0.0
+
+            sessions.append({
+                "date":                date_str,
+                "session_id":          session_id[:8],
+                "project":             project,
+                "branch":              branch,
+                "input_tokens":        input_tok,
+                "output_tokens":       output_tok,
+                "cache_read_tokens":   cache_read_tok,
+                "cache_create_tokens": cache_create_tok,
+                "total_tokens":        total_tok,
+                "cache_hit_pct":       cache_hit_pct,
+                "est_cost_usd":        cost,
+                "duration_min":        duration_min,
+                "turns":               turns,
+                "tools":               " ".join(sorted(tools_used)),
+                "jsonl_path":          str(jsonl_file),
+            })
+
+    sessions.sort(key=lambda x: x["date"])
+    return sessions
 
 
 def _default_copilot_model() -> str:

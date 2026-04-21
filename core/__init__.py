@@ -2,7 +2,7 @@
 Scrooge core package.
 
 Modules:
-  loaders   — path constants, CSV/session/event loading
+  loaders   — path constants, session loading
   analysis  — Copilot session analysis engine and formatter
   claude    — Claude Code tool implementations
   copilot   — Copilot CLI tool implementations + GitHub API helpers
@@ -11,11 +11,11 @@ Public API (called by server.py):
 """
 
 from core.loaders import (
-    CSV_PATH,
+    CLAUDE_PROJECTS_PATH,
     COPILOT_SESSIONS_PATH,
     COPILOT_CONFIG_PATH,
     fmt,
-    load_csv,
+    load_claude_sessions,
     load_copilot_sessions,
     _find_active_session_id,
     load_copilot_session_events,
@@ -45,8 +45,8 @@ from core.copilot import (
 )
 
 __all__ = [
-    "CSV_PATH", "COPILOT_SESSIONS_PATH", "COPILOT_CONFIG_PATH",
-    "fmt", "load_csv", "load_copilot_sessions", "_find_active_session_id",
+    "CLAUDE_PROJECTS_PATH", "COPILOT_SESSIONS_PATH", "COPILOT_CONFIG_PATH",
+    "fmt", "load_claude_sessions", "load_copilot_sessions", "_find_active_session_id",
     "load_copilot_session_events",
     "_WORKFLOW_TOOLS", "_analyze_session_events", "_format_session_analysis",
     "_session_report", "_monthly_summary", "_calibrate", "_matches_tool", "_tool_impact",

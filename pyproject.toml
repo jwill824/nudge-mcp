@@ -21,8 +21,6 @@ include = [
   "server.py",
   "config.py",
   "pricing.py",
-  "log.py",
-  "calibrate.py",
   "core/**/*.py",
   "lib/**/*.py",
 ]
