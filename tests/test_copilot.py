@@ -16,12 +16,12 @@ import config as _cfg
 from conftest import _result_text
 
 from core.copilot import (
-    _copilot_tool_impact,
-    _copilot_behavior_report,
-    _record_copilot_spend,
-    _copilot_budget_forecast,
-    _copilot_premium_usage,
-    _copilot_model_efficiency,
+    copilot_tool_impact,
+    copilot_behavior_report,
+    record_copilot_spend,
+    copilot_budget_forecast,
+    copilot_premium_usage,
+    copilot_model_efficiency,
 )
 
 
@@ -206,7 +206,7 @@ def test_copilot_behavior_report_low_sample_disclaimer(tmp_path, monkeypatch):
         ]
         (session_dir / "events.jsonl").write_text("\n".join(events) + "\n")
 
-    result = _copilot_behavior_report({"last": 10})
+    result = copilot_behavior_report({"last": 10})
     assert "⚠️  Low sample size" in result
 
 
@@ -224,12 +224,12 @@ def test_copilot_behavior_report_no_disclaimer_when_sufficient(tmp_path, monkeyp
         ]
         (session_dir / "events.jsonl").write_text("\n".join(events) + "\n")
 
-    result = _copilot_behavior_report({"last": 10})
+    result = copilot_behavior_report({"last": 10})
     assert "⚠️  Low sample size" not in result
 
 
 # ---------------------------------------------------------------------------
-# _copilot_premium_usage unit tests
+# copilot_premium_usage unit tests
 # ---------------------------------------------------------------------------
 
 def _fake_usage_response(items: list[dict]) -> bytes:
@@ -244,12 +244,12 @@ def test_copilot_premium_usage_no_token(monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     import subprocess
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: type("R", (), {"returncode": 1, "stdout": ""})())
-    result = _copilot_premium_usage({"month": "2026-04"})
+    result = copilot_premium_usage({"month": "2026-04"})
     assert "No GitHub token" in result
 
 
 def test_copilot_premium_usage_invalid_month():
-    result = _copilot_premium_usage({"month": "April-2026"})
+    result = copilot_premium_usage({"month": "April-2026"})
     assert "Invalid month" in result
 
 
@@ -283,7 +283,7 @@ def test_copilot_premium_usage_success(monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **kw: FakeResponse())
 
-    result = _copilot_premium_usage({"month": "2026-04"})
+    result = copilot_premium_usage({"month": "2026-04"})
     assert "testuser" in result
     assert "2026-04" in result
     assert "75" in result        # total requests
@@ -304,7 +304,7 @@ def test_copilot_premium_usage_empty_items(monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **kw: FakeResponse())
 
-    result = _copilot_premium_usage({"month": "2026-04"})
+    result = copilot_premium_usage({"month": "2026-04"})
     assert "No premium request usage" in result
 
 
@@ -318,7 +318,7 @@ def test_copilot_premium_usage_403(monkeypatch):
         raise urllib.error.HTTPError("https://api.github.com", 403, "Forbidden", {}, None)  # type: ignore[arg-type]
 
     monkeypatch.setattr(urllib.request, "urlopen", raise_403)
-    result = _copilot_premium_usage({"month": "2026-04"})
+    result = copilot_premium_usage({"month": "2026-04"})
     assert "Access denied" in result
 
 
@@ -332,7 +332,7 @@ def test_copilot_premium_usage_404(monkeypatch):
         raise urllib.error.HTTPError("https://api.github.com", 404, "Not Found", {}, None)  # type: ignore[arg-type]
 
     monkeypatch.setattr(urllib.request, "urlopen", raise_404)
-    result = _copilot_premium_usage({"month": "2026-04"})
+    result = copilot_premium_usage({"month": "2026-04"})
     assert "No premium request data" in result
 
 
@@ -357,22 +357,22 @@ def test_copilot_premium_usage_overage_budget(monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **kw: FakeResponse())
 
-    result = _copilot_premium_usage({"month": "2026-04"})
+    result = copilot_premium_usage({"month": "2026-04"})
     assert "40.0% used" in result
     assert "10.00" in result
 
 
 # ---------------------------------------------------------------------------
-# _record_copilot_spend unit tests
+# record_copilot_spend unit tests
 # ---------------------------------------------------------------------------
 
 def test_record_copilot_spend_invalid_amount():
-    result = _record_copilot_spend({"amount": -5.0, "month": "2026-04"})
+    result = record_copilot_spend({"amount": -5.0, "month": "2026-04"})
     assert "Invalid amount" in result
 
 
 def test_record_copilot_spend_invalid_month():
-    result = _record_copilot_spend({"amount": 10.0, "month": "April-2026"})
+    result = record_copilot_spend({"amount": 10.0, "month": "April-2026"})
     assert "Invalid month" in result
 
 
@@ -380,7 +380,7 @@ def test_record_copilot_spend_persists(tmp_path, monkeypatch):
     config_file = tmp_path / "config.json"
     monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
 
-    result = _record_copilot_spend({"amount": 17.72, "month": "2026-04"})
+    result = record_copilot_spend({"amount": 17.72, "month": "2026-04"})
     assert "17.72" in result
     assert "2026-04" in result
 
@@ -393,7 +393,7 @@ def test_record_copilot_spend_shows_budget_bar(tmp_path, monkeypatch):
     monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
     _cfg.save({**_cfg.DEFAULTS, "copilot_overage_budget": 25.0})
 
-    result = _record_copilot_spend({"amount": 17.72, "month": "2026-04"})
+    result = record_copilot_spend({"amount": 17.72, "month": "2026-04"})
     assert "█" in result
     assert "Remaining" in result
 
@@ -402,12 +402,12 @@ def test_record_copilot_spend_defaults_to_current_month(tmp_path, monkeypatch):
     config_file = tmp_path / "config.json"
     monkeypatch.setattr(_cfg, "CONFIG_PATH", config_file)
 
-    result = _record_copilot_spend({"amount": 5.0})
+    result = record_copilot_spend({"amount": 5.0})
     assert date.today().strftime("%Y-%m") in result
 
 
 # ---------------------------------------------------------------------------
-# _copilot_budget_forecast unit tests
+# copilot_budget_forecast unit tests
 # ---------------------------------------------------------------------------
 
 def test_copilot_budget_forecast_no_recorded_spend(tmp_path, monkeypatch):
@@ -422,7 +422,7 @@ def test_copilot_budget_forecast_no_recorded_spend(tmp_path, monkeypatch):
          "project": "proj", "duration_min": 5},
     ])
 
-    result = _copilot_budget_forecast({"month": "2026-04"})
+    result = copilot_budget_forecast({"month": "2026-04"})
     assert "record_copilot_spend" in result
 
 
@@ -437,12 +437,12 @@ def test_copilot_budget_forecast_no_overage_budget(tmp_path, monkeypatch):
          "project": "proj", "duration_min": 5},
     ])
 
-    result = _copilot_budget_forecast({"month": "2026-04"})
+    result = copilot_budget_forecast({"month": "2026-04"})
     assert "overage budget" in result.lower()
 
 
 def test_copilot_budget_forecast_invalid_month():
-    result = _copilot_budget_forecast({"month": "April-2026"})
+    result = copilot_budget_forecast({"month": "April-2026"})
     assert "Invalid month" in result
 
 
@@ -452,7 +452,7 @@ def test_copilot_budget_forecast_no_sessions(tmp_path, monkeypatch):
 
     monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [])
 
-    result = _copilot_budget_forecast({"month": "2026-04"})
+    result = copilot_budget_forecast({"month": "2026-04"})
     assert "No Copilot CLI session data" in result
 
 
@@ -473,7 +473,7 @@ def test_copilot_budget_forecast_shows_projection(tmp_path, monkeypatch):
     # No events to analyze (sessions dir absent or empty) — waste section omitted
     monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path / "nonexistent")
 
-    result = _copilot_budget_forecast({"month": "2026-04"})
+    result = copilot_budget_forecast({"month": "2026-04"})
     assert "Burn Rate" in result
     assert "18.00" in result
     assert "25.00" in result
@@ -521,7 +521,7 @@ def test_copilot_budget_forecast_waste_section(tmp_path, monkeypatch):
     monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
     monkeypatch.setattr(core.loaders, "load_copilot_session_events", lambda p: [{"type": "session.start"}])
 
-    result = _copilot_budget_forecast({"month": "2026-04"})
+    result = copilot_budget_forecast({"month": "2026-04"})
     assert "Behavior Waste" in result
     assert "Total estimated waste" in result
 
@@ -549,7 +549,7 @@ def test_copilot_budget_forecast_low_days_disclaimer(tmp_path, monkeypatch):
             return date(2026, 4, 3)
 
     with patch("core.copilot.date", FakeDate):
-        result = _copilot_budget_forecast({"month": "2026-04"})
+        result = copilot_budget_forecast({"month": "2026-04"})
     assert "⚠️  Low burn rate confidence" in result
 
 
@@ -576,22 +576,22 @@ def test_copilot_budget_forecast_no_disclaimer_after_7_days(tmp_path, monkeypatc
             return date(2026, 4, 8)
 
     with patch("core.copilot.date", FakeDate):
-        result = _copilot_budget_forecast({"month": "2026-04"})
+        result = copilot_budget_forecast({"month": "2026-04"})
     assert "⚠️  Low burn rate confidence" not in result
 
 
 # ---------------------------------------------------------------------------
-# _copilot_tool_impact unit tests
+# copilot_tool_impact unit tests
 # ---------------------------------------------------------------------------
 
 def test_copilot_tool_impact_no_tool():
-    result = _copilot_tool_impact({"tool": ""})
+    result = copilot_tool_impact({"tool": ""})
     assert "Please provide" in result
 
 
 def test_copilot_tool_impact_no_sessions(monkeypatch):
     monkeypatch.setattr(core.loaders, "load_copilot_sessions", lambda: [])
-    result = _copilot_tool_impact({"tool": "serena"})
+    result = copilot_tool_impact({"tool": "serena"})
     assert "No Copilot CLI session data found" in result
 
 
@@ -602,7 +602,7 @@ def test_copilot_tool_impact_no_matching_sessions(tmp_path, monkeypatch):
          "project": "proj", "duration_min": 15},
     ])
     monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
-    result = _copilot_tool_impact({"tool": "serena"})
+    result = copilot_tool_impact({"tool": "serena"})
     assert "No Copilot CLI sessions found" in result
     assert "serena" in result
 
@@ -632,7 +632,7 @@ def test_copilot_tool_impact_with_matching_session(tmp_path, monkeypatch):
     (session_dir / "events.jsonl").write_text(serena_event + "\n")
     monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
 
-    result = _copilot_tool_impact({"tool": "serena", "month": "2026-04"})
+    result = copilot_tool_impact({"tool": "serena", "month": "2026-04"})
     assert "Copilot Tool Impact" in result
     assert "serena" in result
     assert "Sessions" in result
@@ -663,7 +663,7 @@ def test_copilot_tool_impact_low_sample_disclaimer_absent_when_sufficient(tmp_pa
         (session_dir / "events.jsonl").write_text(event + "\n")
     monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
 
-    result = _copilot_tool_impact({"tool": "serena", "month": "2026-04"})
+    result = copilot_tool_impact({"tool": "serena", "month": "2026-04"})
     assert "⚠️  Low sample size" not in result
 
 
@@ -673,7 +673,7 @@ def test_copilot_tool_impact_invalid_month(monkeypatch):
          "output_tokens": 10_000, "model": "claude-sonnet-4.6",
          "project": "proj", "duration_min": 5},
     ])
-    result = _copilot_tool_impact({"tool": "bash", "month": "2099-12"})
+    result = copilot_tool_impact({"tool": "bash", "month": "2099-12"})
     assert "No Copilot CLI session data found for" in result
 
 
@@ -684,28 +684,28 @@ def test_copilot_tool_impact_invalid_month(monkeypatch):
 
 def test_copilot_model_efficiency_no_sessions(tmp_path, monkeypatch):
     monkeypatch.setattr(core.loaders, "COPILOT_SESSIONS_PATH", tmp_path)
-    result = _copilot_model_efficiency({})
+    result = copilot_model_efficiency({})
     assert "No Copilot" in result
 
 
 def test_copilot_model_efficiency_returns_string(fake_copilot_sessions):
-    result = _copilot_model_efficiency({})
+    result = copilot_model_efficiency({})
     assert isinstance(result, str)
     assert len(result) > 0
 
 
 def test_copilot_model_efficiency_contains_header(fake_copilot_sessions):
-    result = _copilot_model_efficiency({})
+    result = copilot_model_efficiency({})
     assert "Model Efficiency" in result
 
 
 def test_copilot_model_efficiency_contains_efficiency_score(fake_copilot_sessions):
-    result = _copilot_model_efficiency({})
+    result = copilot_model_efficiency({})
     assert "/ 100" in result
 
 
 def test_copilot_model_efficiency_month_filter_no_match(fake_copilot_sessions):
-    result = _copilot_model_efficiency({"month": "1999-01"})
+    result = copilot_model_efficiency({"month": "1999-01"})
     assert "No" in result
 
 

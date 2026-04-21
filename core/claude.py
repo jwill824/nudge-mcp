@@ -20,7 +20,7 @@ from pricing import LIST_PRICES, CLAUDE_PLANS
 from core import loaders as _loaders
 
 
-def _session_report(args: dict) -> str:
+def session_report(args: dict) -> str:
     sessions = _loaders.load_claude_sessions()
     if not sessions:
         return "No session data found. Ensure Claude Code sessions exist in ~/.claude/projects/."
@@ -83,7 +83,7 @@ def _session_report(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _monthly_summary(args: dict) -> str:
+def monthly_summary(args: dict) -> str:
     month = args.get("month") or date.today().strftime("%Y-%m")
     month_sessions = [s for s in _loaders.load_claude_sessions() if s["date"].startswith(month)]
 
@@ -161,7 +161,7 @@ def _monthly_summary(args: dict) -> str:
         return f"## Monthly Summary — {month}\n\nSessions tracked: {len(month_sessions)}\nError reading token data."
 
 
-def _calibrate(args: dict) -> str:
+def calibrate(args: dict) -> str:
     actual = args["actual_billed"]
     month = args.get("month") or date.today().strftime("%Y-%m")
 
@@ -311,7 +311,7 @@ def _tok_per_turn(row: dict) -> float:
     return int(row.get("total_tokens", 0)) / turns
 
 
-def _tool_impact(args: dict) -> str:
+def tool_impact(args: dict) -> str:
     query = args.get("tool", "").strip()
     month = args.get("month")
 

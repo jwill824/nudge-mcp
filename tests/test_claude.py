@@ -10,7 +10,7 @@ import pytest
 from conftest import _result_text
 
 from core.loaders import fmt
-from core.claude import _matches_tool, _avg, _tok_per_turn, _tool_impact
+from core.claude import _matches_tool, _avg, _tok_per_turn, tool_impact
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +273,7 @@ async def test_tool_impact_with_data_and_known_tool(client, fake_claude_sessions
 
 def test_tool_impact_low_sample_disclaimer(fake_claude_sessions):
     # 3 sessions; "Read" appears in 2 — below threshold of 10
-    result = _tool_impact({"tool": "Read"})
+    result = tool_impact({"tool": "Read"})
     assert "⚠️  Low sample size" in result
 
 
@@ -293,5 +293,5 @@ def test_tool_impact_no_disclaimer_when_sufficient(monkeypatch):
     ]
     import core.loaders
     monkeypatch.setattr(core.loaders, "load_claude_sessions", lambda: sessions)
-    result = _tool_impact({"tool": "Read"})
+    result = tool_impact({"tool": "Read"})
     assert "⚠️  Low sample size" not in result

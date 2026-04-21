@@ -26,22 +26,22 @@ from core.analysis import (
     _format_session_analysis,
 )
 from core.claude import (
-    _session_report,
-    _monthly_summary,
-    _calibrate,
+    session_report,
+    monthly_summary,
+    calibrate,
     _matches_tool,
-    _tool_impact,
+    tool_impact,
 )
 from core.copilot import (
-    _copilot_tool_impact,
-    _copilot_session_report,
-    _copilot_monthly_summary,
-    _configure_subscription,
-    _analyze_copilot_session,
-    _copilot_behavior_report,
-    _copilot_budget_forecast,
-    _record_copilot_spend,
-    _copilot_premium_usage,
+    copilot_tool_impact,
+    copilot_session_report,
+    copilot_monthly_summary,
+    configure_subscription,
+    analyze_copilot_session,
+    copilot_behavior_report,
+    copilot_budget_forecast,
+    record_copilot_spend,
+    copilot_premium_usage,
 )
 
 __all__ = [
@@ -49,8 +49,8 @@ __all__ = [
     "fmt", "load_claude_sessions", "load_copilot_sessions", "find_active_session_id",
     "load_copilot_session_events",
     "_WORKFLOW_TOOLS", "_analyze_session_events", "_format_session_analysis",
-    "_session_report", "_monthly_summary", "_calibrate", "_matches_tool", "_tool_impact",
-    "_copilot_tool_impact", "_copilot_session_report", "_copilot_monthly_summary",
-    "_configure_subscription", "_analyze_copilot_session", "_copilot_behavior_report",
-    "_copilot_budget_forecast", "_record_copilot_spend", "_copilot_premium_usage",
+    "session_report", "monthly_summary", "calibrate", "_matches_tool", "tool_impact",
+    "copilot_tool_impact", "copilot_session_report", "copilot_monthly_summary",
+    "configure_subscription", "analyze_copilot_session", "copilot_behavior_report",
+    "copilot_budget_forecast", "record_copilot_spend", "copilot_premium_usage",
 ]
