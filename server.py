@@ -39,22 +39,22 @@ from fastmcp import FastMCP
 import config as _config
 
 from core.claude import (
-    _session_report,
-    _monthly_summary,
-    _calibrate,
-    _tool_impact,
+    session_report,
+    monthly_summary,
+    calibrate,
+    tool_impact,
 )
 from core.copilot import (
-    _copilot_tool_impact,
-    _copilot_session_report,
-    _copilot_monthly_summary,
-    _configure_subscription,
-    _analyze_copilot_session,
-    _copilot_behavior_report,
-    _copilot_budget_forecast,
-    _record_copilot_spend,
-    _copilot_premium_usage,
-    _copilot_model_efficiency,
+    copilot_tool_impact as _copilot_tool_impact,
+    copilot_session_report as _copilot_session_report,
+    copilot_monthly_summary as _copilot_monthly_summary,
+    configure_subscription as _configure_subscription,
+    analyze_copilot_session as _analyze_copilot_session,
+    copilot_behavior_report as _copilot_behavior_report,
+    copilot_budget_forecast as _copilot_budget_forecast,
+    record_copilot_spend as _record_copilot_spend,
+    copilot_premium_usage as _copilot_premium_usage,
+    copilot_model_efficiency as _copilot_model_efficiency,
 )
 
 mcp = FastMCP("nudge-mcp")
@@ -140,7 +140,7 @@ def claude_session_report(
         today: Show today's sessions only
         month: Filter to a specific month, e.g. '2026-04'
     """
-    return _session_report({"last": last, "today": today, "month": month})
+    return session_report({"last": last, "today": today, "month": month})
 
 
 @mcp.tool
@@ -153,7 +153,7 @@ def claude_monthly_summary(month: Optional[str] = None) -> str:
     Args:
         month: Month in YYYY-MM format. Defaults to current month.
     """
-    return _monthly_summary({"month": month})
+    return monthly_summary({"month": month})
 
 
 @mcp.tool
@@ -167,7 +167,7 @@ def claude_calibrate_pricing(actual_billed: float, month: Optional[str] = None) 
         actual_billed: Actual amount billed shown in Claude Code subscription (USD)
         month: Month being calibrated (YYYY-MM). Defaults to previous month.
     """
-    return _calibrate({"actual_billed": actual_billed, "month": month})
+    return calibrate({"actual_billed": actual_billed, "month": month})
 
 
 @mcp.tool
@@ -184,7 +184,7 @@ def claude_tool_impact(tool: str, month: Optional[str] = None) -> str:
         tool: Tool name to analyze. Examples: 'serena', 'ck', 'ast-grep', 'Read', 'Grep', 'Glob', 'Bash'. Case-insensitive.
         month: Limit analysis to a specific month, e.g. '2026-04'. Defaults to all history.
     """
-    return _tool_impact({"tool": tool, "month": month})
+    return tool_impact({"tool": tool, "month": month})
 
 
 @mcp.tool

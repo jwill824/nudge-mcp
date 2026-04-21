@@ -21,8 +21,6 @@ include = [
   "server.py",
   "config.py",
   "pricing.py",
-  "log.py",
-  "calibrate.py",
   "core/**/*.py",
   "lib/**/*.py",
 ]
@@ -31,7 +29,26 @@ exclude = ["tests", "docs"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"server.py" = ["E402"]
+"tests/conftest.py" = ["E402"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+reportPrivateUsage = false
+
 [dependency-groups]
 dev = [
+    "pyright>=1.1.408",
     "pytest>=9.0.3",
+    "pytest-asyncio>=0.26.0",
+    "ruff>=0.15.11",
 ]

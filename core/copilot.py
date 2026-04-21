@@ -28,7 +28,7 @@ from core import analysis as _analysis
 from core import model_analysis as _model_analysis
 from core.claude import _matches_tool
 
-def _copilot_tool_impact(args: dict) -> str:
+def copilot_tool_impact(args: dict) -> str:
     query = args.get("tool", "").strip()
     month = args.get("month")
 
@@ -108,6 +108,8 @@ def _copilot_tool_impact(args: dict) -> str:
         }
 
     wa = avgs(with_sessions)
+    if wa is None:
+        return f"No sessions found using '{query}'."
     wo = avgs(sessions_without)
 
     # Cost estimates: use recorded spend / total turns as cost-per-turn proxy
@@ -204,7 +206,7 @@ def _copilot_tool_impact(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _copilot_session_report(args: dict) -> str:
+def copilot_session_report(args: dict) -> str:
     sessions = _loaders.load_copilot_sessions()
     if not sessions:
         return (
@@ -263,7 +265,7 @@ def _copilot_session_report(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _copilot_monthly_summary(args: dict) -> str:
+def copilot_monthly_summary(args: dict) -> str:
     month = args.get("month") or date.today().strftime("%Y-%m")
     sessions = _loaders.load_copilot_sessions()
     month_sessions = [s for s in sessions if s["date"].startswith(month)]
@@ -271,7 +273,7 @@ def _copilot_monthly_summary(args: dict) -> str:
     if not month_sessions:
         return f"No Copilot CLI session data found for {month}."
 
-    from pricing import COPILOT_PLANS, LIST_PRICES
+    from pricing import LIST_PRICES
     cfg = _config.load()
     copilot_budget  = cfg.get("copilot_monthly_budget", 10.0)
     overage_budget  = cfg.get("copilot_overage_budget", 0.0)
@@ -362,7 +364,7 @@ def _copilot_monthly_summary(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _configure_subscription(args: dict) -> str:
+def configure_subscription(args: dict) -> str:
     service = args.get("service", "").lower()
     plan = args.get("plan", "")
     custom_budget = args.get("monthly_budget")
@@ -371,7 +373,7 @@ def _configure_subscription(args: dict) -> str:
     if service not in ("claude", "copilot"):
         return "Invalid service. Use 'claude' or 'copilot'."
 
-    from pricing import CLAUDE_PLANS, COPILOT_PLANS
+    from pricing import CLAUDE_PLANS
     plans      = CLAUDE_PLANS  if service == "claude"  else COPILOT_PLANS
     plan_key   = "claude_plan" if service == "claude"  else "copilot_plan"
     budget_key = "claude_monthly_budget" if service == "claude" else "copilot_monthly_budget"
@@ -419,7 +421,7 @@ def _configure_subscription(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _analyze_copilot_session(args: dict) -> str:
+def analyze_copilot_session(args: dict) -> str:
     session_id = args.get("session_id") or ""
 
     if not _loaders.COPILOT_SESSIONS_PATH.exists():
@@ -438,7 +440,7 @@ def _analyze_copilot_session(args: dict) -> str:
             return f"No session found matching prefix '{session_id}'."
     else:
         # Active session first, then most-recently-modified
-        resolved = _loaders._find_active_session_id()
+        resolved = _loaders.find_active_session_id()
         if not resolved:
             candidates = sorted(
                 (d for d in _loaders.COPILOT_SESSIONS_PATH.iterdir() if (d / "events.jsonl").exists()),
@@ -458,7 +460,7 @@ def _analyze_copilot_session(args: dict) -> str:
     return _analysis._format_session_analysis(analysis, is_active=is_active)
 
 
-def _copilot_behavior_report(args: dict) -> str:
+def copilot_behavior_report(args: dict) -> str:
     last  = args.get("last", 10)
     month = args.get("month")
 
@@ -631,7 +633,7 @@ def _copilot_behavior_report(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _copilot_budget_forecast(args: dict) -> str:
+def copilot_budget_forecast(args: dict) -> str:
     month = args.get("month") or date.today().strftime("%Y-%m")
 
     try:
@@ -703,7 +705,7 @@ def _copilot_budget_forecast(args: dict) -> str:
             events_file = session_dir / "events.jsonl"
             if not events_file.exists():
                 continue
-            events = _loaders.load_copilot_session_events(events_file)
+            events = _loaders.load_copilot_session_events(session_dir.name)
             if events:
                 a = _analysis._analyze_session_events(events)
                 if a:
@@ -854,7 +856,7 @@ def _copilot_budget_forecast(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _record_copilot_spend(args: dict) -> str:
+def record_copilot_spend(args: dict) -> str:
     amount = args.get("amount")
     if amount is None or float(amount) < 0:
         return "Invalid amount. Provide a non-negative USD value, e.g. 17.72."
@@ -937,7 +939,7 @@ def _get_gh_username(token: str) -> str | None:
     return None
 
 
-def _copilot_premium_usage(args: dict) -> str:
+def copilot_premium_usage(args: dict) -> str:
     month_str = args.get("month")
     if month_str:
         try:
@@ -1053,7 +1055,7 @@ def _copilot_premium_usage(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _copilot_model_efficiency(args: dict) -> str:
+def copilot_model_efficiency(args: dict) -> str:
     """Cross-session model efficiency report."""
     last  = int(args.get("last", 10))
     month = args.get("month")

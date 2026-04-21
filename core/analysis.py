@@ -458,7 +458,7 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
     heavy = analysis.get("heavy_context_tools", [])
     total_kb = analysis.get("total_context_kb", 0.0)
     redundant = analysis.get("redundant_reads", 0)
-    total_views = analysis.get("total_view_reads", 0)
+    total_views = analysis.get("total_view_reads", 0)  # noqa: F841
     repeat_pct = analysis.get("repeat_view_pct", 0)
     repeated = analysis.get("repeated_view_paths", {})
 
@@ -654,7 +654,7 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
     if health_score == 0:
         lines.append("✅  Session healthy — no stagnation or over-duration signals detected.")
     elif health_score == 1:
-        lines.append(f"💡 Session getting long — monitor for quality degradation.")
+        lines.append("💡 Session getting long — monitor for quality degradation.")
         lines.append(f"   Signal: {health_signals[0]}")
         lines.append(
             "   Start a new session if switching to an unrelated topic or feature.\n"
@@ -676,16 +676,16 @@ def _format_session_analysis(analysis: dict, is_active: bool = False) -> str:
         lines.append("")
         lines.append("   How agentic tools help avoid forced restarts:")
         lines.append(
-            f"   • Superpowers: dispatches each task to a fresh subagent — parent session stays lean\n"
-            f"     → https://github.com/obra/superpowers"
+            "   • Superpowers: dispatches each task to a fresh subagent — parent session stays lean\n"
+            "     → https://github.com/obra/superpowers"
         )
         lines.append(
-            f"   • GSD: context engineering prevents rot; /gsd-new-project re-loads state in a fresh session\n"
-            f"     → https://github.com/gsd-build/get-shit-done"
+            "   • GSD: context engineering prevents rot; /gsd-new-project re-loads state in a fresh session\n"
+            "     → https://github.com/gsd-build/get-shit-done"
         )
         lines.append(
-            f"   • Spec-Kit: specs encode all intent — /speckit.constitution bootstraps a new session cheaply\n"
-            f"     → https://github.github.com/spec-kit/"
+            "   • Spec-Kit: specs encode all intent — /speckit.constitution bootstraps a new session cheaply\n"
+            "     → https://github.github.com/spec-kit/"
         )
         if health_score >= 3:
             suggestions.append(

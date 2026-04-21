@@ -4,8 +4,6 @@
 
 MCP server that exposes Claude Code and GitHub Copilot CLI session token usage and cost data as tools, so your AI assistant can query its own usage mid-conversation.
 
-Also includes a Stop hook that automatically logs each session to a CSV, and CLI tools for reporting and pricing calibration.
-
 ---
 
 ## Prerequisites
@@ -69,24 +67,7 @@ Create (or update) `.mcp.json` in the repo root:
 
 > **Note:** `.mcp.json` is gitignored because it may contain machine-specific config. Each contributor creates their own locally.
 
-### 2. Wire up the Stop hook
-
-Add to `~/.claude/settings.json` under `hooks`:
-
-```json
-"hooks": {
-  "Stop": [{
-    "hooks": [{
-      "type": "command",
-      "command": "uvx nudge-mcp log 2>/dev/null || true"
-    }]
-  }]
-}
-```
-
-This automatically logs token usage to `~/.config/nudge/sessions.csv` every time a Claude Code session ends.
-
-### 3. Restart Claude Code
+### 2. Restart Claude Code
 
 The MCP server connects on startup. You should see `nudge-mcp` listed when you run `/mcp` in Claude Code.
 
@@ -313,42 +294,19 @@ Analyse how well the active model matched task complexity across Copilot CLI ses
 
 ---
 
-## CLI Tools
-
-### Session report
-
-```bash
-uvx nudge-mcp nudge             # All Claude sessions
-uvx nudge-mcp nudge --last 20   # Last N sessions
-uvx nudge-mcp nudge --today     # Today only
-uvx nudge-mcp nudge --month 2026-04
-uvx nudge-mcp nudge --session abc123  # By session ID prefix
-
-uvx nudge-mcp nudge --copilot             # Copilot CLI sessions
-uvx nudge-mcp nudge --copilot --last 10
-uvx nudge-mcp nudge --copilot --month 2026-04
-```
-
-### Recalibrate pricing
-
-```bash
-uvx nudge-mcp calibrate 185.50
-# Specify a past month:
-uvx nudge-mcp calibrate 198.36 --month 2026-04
-```
-
----
-
 ## Pricing Model
 
-| Token type | List price | Notes |
-|-----------|-----------|-------|
-| Input | $3.00/MTok | |
-| Output | $15.00/MTok | |
-| Cache read | $0.30/MTok | Cheapest — high cache hit % = efficiency |
-| Cache creation | $3.75/MTok | |
+Costs are calculated per-model using Anthropic API list prices, then scaled by a `discount_factor`:
 
-The `discount_factor` (default `0.5868` ≈ 41% off list) is applied uniformly. Recalibrate monthly for accuracy.
+| Model | Input | Output | Cache read | Cache create |
+|-------|-------|--------|------------|--------------|
+| Claude Sonnet 4.6 | $3.00/MTok | $15.00/MTok | $0.30/MTok | $3.75/MTok |
+| Claude Haiku 4.5  | $0.80/MTok | $4.00/MTok  | $0.08/MTok | $1.00/MTok  |
+| Claude Opus 4.6   | $15.00/MTok | $75.00/MTok | $1.50/MTok | $18.75/MTok |
+
+The model used is detected per-turn from the JSONL (`message.model`), so Opus sessions are priced at Opus rates automatically.
+
+The `discount_factor` (default `0.5868` ≈ 41% off list) approximates subscription value vs API list price. Recalibrate monthly with `claude_calibrate_pricing` for accuracy.
 
 ---
 
@@ -382,9 +340,9 @@ npx @modelcontextprotocol/inspector uvx nudge-mcp
 
 ## Data
 
-Sessions are stored at `~/.config/nudge/sessions.csv`.
+Claude Code session data is read directly from `~/.claude/projects/`. No setup required — sessions are parsed from JSONL files that Claude Code writes automatically. The model used is detected per-turn from `message.model` in the JSONL, enabling accurate per-model cost calculations.
 
-CSV columns: `date`, `session_id`, `project`, `branch`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_create_tokens`, `total_tokens`, `cache_hit_pct`, `est_cost_usd`, `duration_min`, `turns`
+Copilot CLI session data is read from `~/.copilot/session-state/`.
 
 ---
 

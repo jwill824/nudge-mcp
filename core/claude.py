@@ -10,7 +10,6 @@ Responsibilities:
 
 import json
 import re
-import subprocess
 from datetime import date
 from glob import glob
 from pathlib import Path
@@ -18,13 +17,13 @@ from pathlib import Path
 import config as _config
 from pricing import LIST_PRICES, CLAUDE_PLANS
 
-from core.loaders import load_csv, fmt
+from core import loaders as _loaders
 
 
-def _session_report(args: dict) -> str:
-    rows = load_csv()
-    if not rows:
-        return "No session data found. Sessions are logged automatically when Claude Code stops."
+def session_report(args: dict) -> str:
+    sessions = _loaders.load_claude_sessions()
+    if not sessions:
+        return "No session data found. Ensure Claude Code sessions exist in ~/.claude/projects/."
 
     today_str = date.today().isoformat()
     month = args.get("month")
@@ -32,46 +31,47 @@ def _session_report(args: dict) -> str:
     last = args.get("last", 20)
 
     if today:
-        rows = [r for r in rows if r["date"].startswith(today_str)]
+        sessions = [s for s in sessions if s["date"].startswith(today_str)]
     elif month:
-        rows = [r for r in rows if r["date"].startswith(month)]
+        sessions = [s for s in sessions if s["date"].startswith(month)]
 
     if last and not today and not month:
-        rows = rows[-last:]
+        sessions = sessions[-last:]
     elif last:
-        rows = rows[-last:]
+        sessions = sessions[-last:]
 
-    if not rows:
+    if not sessions:
         return "No sessions found for the given filter."
 
     lines = []
     header = (
-        f"{'Date':<17} {'Project':<12} {'Cache%':>7} {'$/sess':>7} "
+        f"{'Date':<17} {'Project':<12} {'Model':<20} {'Cache%':>7} {'$/sess':>7} "
         f"{'Total':>8} {'Out':>7} {'Min':>5} {'Turns':>5} {'Tok/T':>7}"
     )
     div = "─" * len(header)
     lines.extend([div, header, div])
 
     total_cost = 0.0
-    for r in rows:
-        cost = float(r.get("est_cost_usd", 0))
+    for s in sessions:
+        cost = s["est_cost_usd"]
         total_cost += cost
-        turns = int(r.get("turns", 1)) or 1
-        tok_per_turn = fmt(int(r["total_tokens"]) // turns)
+        turns = s["turns"] or 1
+        tok_per_turn = _loaders.fmt(s["total_tokens"] // turns)
+        model_short = s.get("model", "unknown").replace("claude-", "").replace("-latest", "")
         lines.append(
-            f"{r['date']:<17} {r['project']:<12} "
-            f"{r['cache_hit_pct']:>6}% ${cost:>6.4f} "
-            f"{fmt(r['total_tokens']):>8} {fmt(r['output_tokens']):>7} "
-            f"{r['duration_min']:>5} {r['turns']:>5} {tok_per_turn:>7}"
+            f"{s['date']:<17} {s['project']:<12} {model_short:<20} "
+            f"{s['cache_hit_pct']:>6}% ${cost:>6.4f} "
+            f"{_loaders.fmt(s['total_tokens']):>8} {_loaders.fmt(s['output_tokens']):>7} "
+            f"{s['duration_min']:>5} {s['turns']:>5} {tok_per_turn:>7}"
         )
 
     lines.append(div)
 
-    if len(rows) > 1:
-        avg_cache = sum(float(r["cache_hit_pct"]) for r in rows) / len(rows)
-        avg_cost = total_cost / len(rows)
+    if len(sessions) > 1:
+        avg_cache = sum(s["cache_hit_pct"] for s in sessions) / len(sessions)
+        avg_cost = total_cost / len(sessions)
         lines.append(
-            f"\nSessions: {len(rows)}  |  Total est.: ${total_cost:.4f}  |  "
+            f"\nSessions: {len(sessions)}  |  Total est.: ${total_cost:.4f}  |  "
             f"Avg/session: ${avg_cost:.4f}  |  Avg cache hit: {avg_cache:.1f}%"
         )
 
@@ -84,13 +84,9 @@ def _session_report(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _monthly_summary(args: dict) -> str:
-    rows = load_csv()
+def monthly_summary(args: dict) -> str:
     month = args.get("month") or date.today().strftime("%Y-%m")
-    rows = [r for r in rows if r["date"].startswith(month)]
-
-    if not rows:
-        return f"No session data found for {month}."
+    month_sessions = [s for s in _loaders.load_claude_sessions() if s["date"].startswith(month)]
 
     try:
         from pricing import estimate_cost
@@ -128,7 +124,7 @@ def _monthly_summary(args: dict) -> str:
             filled = int(pct_used / 5)  # 20-char bar
             bar = "█" * filled + "░" * (20 - filled)
             budget_lines = [
-                f"",
+                "",
                 f"Plan:              {plan_label}",
                 f"Monthly budget:    ${claude_budget:.2f}",
                 f"Estimated spend:   ${cost:.2f}",
@@ -137,51 +133,83 @@ def _monthly_summary(args: dict) -> str:
             ]
         else:
             budget_lines = [
-                f"",
+                "",
                 f"Plan:              {plan_label}  (no monthly budget cap)",
                 f"Estimated spend:   ${cost:.2f}",
             ]
 
         lines = [
             f"## Monthly Summary — {month}",
-            f"",
-            f"Token breakdown:",
+            "",
+            "Token breakdown:",
             f"  Input:         {totals['input']:>15,}",
             f"  Output:        {totals['output']:>15,}",
-            f"  Cache reads:   {totals['cache_read']:>15,}  ({fmt(totals['cache_read'])})",
+            f"  Cache reads:   {totals['cache_read']:>15,}  ({_loaders.fmt(totals['cache_read'])})",
             f"  Cache creates: {totals['cache_create']:>15,}",
-            f"",
+            "",
             f"At API list prices:                 ${list_cost:.2f}",
             f"Discount factor:                    {discount} ({(1-discount)*100:.1f}% off list)",
         ] + budget_lines + [
-            f"",
-            f"Sessions tracked: {len(rows)}",
-            f"",
-            f"Note: If this is the current month, compare to your Claude Code subscription",
-            f"usage counter. Cross-month sessions may cause ~$20-50 discrepancy.",
+            "",
+            f"Sessions tracked: {len(month_sessions)}",
+            "",
+            "Note: If this is the current month, compare to your Claude Code subscription",
+            "usage counter. Cross-month sessions may cause ~$20-50 discrepancy.",
         ]
         return "\n".join(lines)
 
-    except ImportError:
-        cost = sum(float(r["est_cost_usd"]) for r in rows)
-        return f"Month: {month}\nSessions: {len(rows)}\nEstimated cost: ${cost:.4f}"
+    except Exception:
+        return f"## Monthly Summary — {month}\n\nSessions tracked: {len(month_sessions)}\nError reading token data."
 
 
-def _calibrate(args: dict) -> str:
-    import sys as _sys
+def calibrate(args: dict) -> str:
     actual = args["actual_billed"]
-    month = args.get("month")
+    month = args.get("month") or date.today().strftime("%Y-%m")
 
-    calibrate_script = Path(__file__).parent.parent / "calibrate.py"
-    cmd = [_sys.executable, str(calibrate_script), str(actual)]
-    if month:
-        cmd += ["--month", month]
+    totals = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
+    for jsonl_path in glob(str(Path.home() / ".claude/projects/**/*.jsonl"), recursive=True):
+        with open(jsonl_path) as f:
+            for line in f:
+                try:
+                    d = json.loads(line.strip())
+                    if not d.get("timestamp", "").startswith(month):
+                        continue
+                    usage = d.get("message", {}).get("usage", {})
+                    if usage:
+                        totals["input"]        += usage.get("input_tokens", 0)
+                        totals["output"]       += usage.get("output_tokens", 0)
+                        totals["cache_read"]   += usage.get("cache_read_input_tokens", 0)
+                        totals["cache_create"] += usage.get("cache_creation_input_tokens", 0)
+                except Exception:
+                    pass
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        return result.stdout or result.stderr or "Calibration complete."
-    except Exception as e:
-        return f"Calibration failed: {e}"
+    if all(v == 0 for v in totals.values()):
+        return f"No token data found for {month}. Check that sessions exist for this period."
+
+    LIST = {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_create": 3.75}
+    list_cost = sum(totals[k] * LIST[k] for k in totals) / 1_000_000
+    if list_cost == 0:
+        return "Error: list_cost is 0, cannot compute discount."
+
+    factor = actual / list_cost
+
+    cfg = _config.load()
+    history = cfg.get("calibration_history", [])
+    history.append({
+        "month":         month,
+        "actual":        round(actual, 2),
+        "list_estimate": round(list_cost, 2),
+        "factor":        round(factor, 4),
+    })
+    _config.update(discount_factor=round(factor, 4), calibration_history=history)
+
+    plan_label = CLAUDE_PLANS.get(cfg.get("claude_plan", ""), {}).get("label", cfg.get("claude_plan", ""))
+    budget = cfg.get("claude_monthly_budget", 0)
+    return (
+        f"Calibrated {month}: actual=${actual:.2f}  list_est=${list_cost:.4f}  "
+        f"factor={factor:.4f} ({(1-factor)*100:.1f}% off list)\n"
+        f"Plan: {plan_label}  |  Monthly budget: ${budget:.2f}"
+    )
 
 
 # Known MCP tool prefixes for friendly short names
@@ -223,53 +251,33 @@ def _matches_tool(query: str, tool_name: str, tool_input: dict) -> bool:
     return False
 
 
-def _scan_sessions_for_tool(query: str, csv_rows: list[dict]) -> tuple[list[tuple], list[dict]]:
+def _scan_sessions_for_tool(query: str, sessions: list[dict]) -> tuple[list[tuple], list[dict]]:
     """
     Split sessions into those that used the tool vs those that didn't.
-    Uses the 'tools' column from CSV when available; falls back to scanning JSONL files.
+    Uses the 'tools' field for fast matching, then scans JSONL for exact call counts.
     Returns (sessions_with, sessions_without).
-    sessions_with: list of (csv_row, call_count)
-    sessions_without: list of csv_row
+    sessions_with: list of (session_dict, call_count)
+    sessions_without: list of session_dict
     """
     sessions_with = []
     sessions_without = []
 
-    # Deduplicate rows by session_id (keep last, which has the most turns)
+    # Deduplicate by session_id (keep last occurrence)
     seen_ids: dict[str, dict] = {}
-    for r in csv_rows:
-        seen_ids[r["session_id"]] = r
+    for s in sessions:
+        seen_ids[s["session_id"]] = s
     deduped = list(seen_ids.values())
 
-    # Split into rows with and without the 'tools' column populated
-    csv_indexed: dict[str, dict] = {}
-    for r in deduped:
-        tools_col = r.get("tools", "")
-        if tools_col:
-            # Fast path: match directly against recorded tool names
-            tool_names = tools_col.split()
-            matched = any(_matches_tool(query, t, {}) for t in tool_names)
-            if matched:
-                sessions_with.append((r, sum(1 for t in tool_names if _matches_tool(query, t, {}))))
-            else:
-                sessions_without.append(r)
-        else:
-            # No tools column — queue for JSONL scan
-            csv_indexed[r["session_id"]] = r
+    for s in deduped:
+        tool_names = s.get("tools", "").split()
+        if not any(_matches_tool(query, t, {}) for t in tool_names):
+            sessions_without.append(s)
+            continue
 
-    # Fall back to JSONL scanning for sessions without a tools column
-    if csv_indexed:
-        seen_jsonl = set()
-        for jsonl_path in glob(str(Path.home() / ".claude/projects/**/*.jsonl"), recursive=True):
-            session_uuid = Path(jsonl_path).stem
-            session_id_8 = session_uuid[:8]
-
-            if session_id_8 not in csv_indexed or session_id_8 in seen_jsonl:
-                continue
-            seen_jsonl.add(session_id_8)
-
-            csv_row = csv_indexed[session_id_8]
-            call_count = 0
-
+        # Count exact calls by rescanning the JSONL file
+        call_count = 0
+        jsonl_path = s.get("jsonl_path", "")
+        if jsonl_path:
             try:
                 with open(jsonl_path) as f:
                     for line in f:
@@ -287,12 +295,9 @@ def _scan_sessions_for_tool(query: str, csv_rows: list[dict]) -> tuple[list[tupl
                         except Exception:
                             pass
             except Exception:
-                continue
+                pass
 
-            if call_count > 0:
-                sessions_with.append((csv_row, call_count))
-            else:
-                sessions_without.append(csv_row)
+        sessions_with.append((s, max(call_count, 1)))
 
     return sessions_with, sessions_without
 
@@ -307,23 +312,23 @@ def _tok_per_turn(row: dict) -> float:
     return int(row.get("total_tokens", 0)) / turns
 
 
-def _tool_impact(args: dict) -> str:
+def tool_impact(args: dict) -> str:
     query = args.get("tool", "").strip()
     month = args.get("month")
 
     if not query:
         return "Please provide a tool name to analyze."
 
-    rows = load_csv()
-    if not rows:
+    sessions = _loaders.load_claude_sessions()
+    if not sessions:
         return "No session data found."
 
     if month:
-        rows = [r for r in rows if r["date"].startswith(month)]
-        if not rows:
+        sessions = [s for s in sessions if s["date"].startswith(month)]
+        if not sessions:
             return f"No session data found for {month}."
 
-    sessions_with, sessions_without = _scan_sessions_for_tool(query, rows)
+    sessions_with, sessions_without = _scan_sessions_for_tool(query, sessions)
 
     if not sessions_with:
         period = f" in {month}" if month else ""
@@ -351,6 +356,7 @@ def _tool_impact(args: dict) -> str:
         }
 
     wa = avgs(with_rows)
+    assert wa is not None  # guaranteed: sessions_with is non-empty (checked above)
     wo = avgs(sessions_without)
 
     MIN_SESSIONS_FOR_RELIABLE_DATA = 10
@@ -363,7 +369,7 @@ def _tool_impact(args: dict) -> str:
 
     lines = [
         f"## Tool Impact Analysis — '{query}'",
-        f"",
+        "",
         f"Scanned {len(sessions_with) + len(sessions_without)} sessions"
         + (f" in {month}" if month else ""),
     ]
@@ -393,14 +399,14 @@ def _tool_impact(args: dict) -> str:
 
     if wo:
         lines.append(row_line("Sessions",     wa["n"],        wo["n"],        lambda v: str(int(v)),   lower_is_better=False))
-        lines.append(row_line("Avg tokens/turn", wa["tok_turn"], wo["tok_turn"], lambda v: fmt(int(v)),  lower_is_better=True))
+        lines.append(row_line("Avg tokens/turn", wa["tok_turn"], wo["tok_turn"], lambda v: _loaders.fmt(int(v)),  lower_is_better=True))
         lines.append(row_line("Avg cache hit %", wa["cache_pct"], wo["cache_pct"], lambda v: f"{v:.1f}%", lower_is_better=False))
         lines.append(row_line("Avg cost/session", wa["cost"],   wo["cost"],     lambda v: f"${v:.4f}",  lower_is_better=True))
         lines.append(row_line("Avg turns",    wa["turns"],    wo["turns"],    lambda v: f"{v:.0f}",    lower_is_better=False))
         lines.append(row_line("Avg duration (min)", wa["duration"], wo["duration"], lambda v: f"{v:.1f}", lower_is_better=False))
     else:
         lines.append(f"{'Sessions':<22} {str(wa['n']):>16} {'0':>16} {'n/a':>12}")
-        lines.append(f"{'Avg tokens/turn':<22} {fmt(int(wa['tok_turn'])):>16} {'n/a':>16} {'n/a':>12}")
+        lines.append(f"{'Avg tokens/turn':<22} {_loaders.fmt(int(wa['tok_turn'])):>16} {'n/a':>16} {'n/a':>12}")
         lines.append(f"{'Avg cache hit %':<22} {str(round(wa['cache_pct'], 1)) + '%':>16} {'n/a':>16} {'n/a':>12}")
         lines.append(f"{'Avg cost/session':<22} {'$' + str(round(wa['cost'], 4)):>16} {'n/a':>16} {'n/a':>12}")
 
@@ -418,7 +424,7 @@ def _tool_impact(args: dict) -> str:
     for r, calls in top:
         lines.append(
             f"  {r['date']:<17} {r['project']:<12} {calls:>6}  "
-            f"{fmt(int(_tok_per_turn(r))):>7}  {float(r['cache_hit_pct']):>6.1f}%  ${float(r['est_cost_usd']):>7.4f}"
+            f"{_loaders.fmt(int(_tok_per_turn(r))):>7}  {float(r['cache_hit_pct']):>6.1f}%  ${float(r['est_cost_usd']):>7.4f}"
         )
 
     lines.append("")
