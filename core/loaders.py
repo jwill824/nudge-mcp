@@ -64,19 +64,39 @@ def load_claude_sessions() -> list[dict]:
             if not assistant_entries:
                 continue
 
-            input_tok = output_tok = cache_read_tok = cache_create_tok = 0
+            # Accumulate tokens per model for accurate per-model cost calculation
+            tokens_by_model: dict[str, dict[str, int]] = {}
             tools_used: set[str] = set()
             for e in assistant_entries:
-                usage = e.get("message", {}).get("usage", {})
-                input_tok        += usage.get("input_tokens", 0)
-                output_tok       += usage.get("output_tokens", 0)
-                cache_read_tok   += usage.get("cache_read_input_tokens", 0)
-                cache_create_tok += usage.get("cache_creation_input_tokens", 0)
-                for block in e.get("message", {}).get("content", []):
+                msg = e.get("message", {})
+                model = msg.get("model") or "claude-sonnet-4-6"
+                if model == "<synthetic>":
+                    continue
+                usage = msg.get("usage", {})
+                if model not in tokens_by_model:
+                    tokens_by_model[model] = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
+                tokens_by_model[model]["input"]        += usage.get("input_tokens", 0)
+                tokens_by_model[model]["output"]       += usage.get("output_tokens", 0)
+                tokens_by_model[model]["cache_read"]   += usage.get("cache_read_input_tokens", 0)
+                tokens_by_model[model]["cache_create"] += usage.get("cache_creation_input_tokens", 0)
+                for block in msg.get("content", []):
                     if block.get("type") == "tool_use":
                         name = block.get("name", "")
                         if name:
                             tools_used.add(name)
+
+            if not tokens_by_model:
+                continue
+
+            # Aggregate totals and cost across all models
+            input_tok = sum(v["input"] for v in tokens_by_model.values())
+            output_tok = sum(v["output"] for v in tokens_by_model.values())
+            cache_read_tok = sum(v["cache_read"] for v in tokens_by_model.values())
+            cache_create_tok = sum(v["cache_create"] for v in tokens_by_model.values())
+
+            # Primary model = the one with the most output tokens
+            primary_model = max(tokens_by_model, key=lambda m: tokens_by_model[m]["output"])
+            models_used = sorted(tokens_by_model.keys())
 
             cwd = branch = ""
             for e in entries:
@@ -103,13 +123,13 @@ def load_claude_sessions() -> list[dict]:
             total_tok = input_tok + output_tok + cache_read_tok + cache_create_tok
             denom = cache_read_tok + input_tok
             cache_hit_pct = round(cache_read_tok / denom * 100, 1) if denom > 0 else 0.0
-            turns = len(assistant_entries)
+            turns = len([e for e in assistant_entries if (e.get("message", {}).get("model") or "") != "<synthetic>"])
 
             try:
-                cost = round(estimate_cost({
-                    "input": input_tok, "output": output_tok,
-                    "cache_read": cache_read_tok, "cache_create": cache_create_tok,
-                }, discount=discount), 4)
+                cost = round(sum(
+                    estimate_cost(toks, model=model, discount=discount)
+                    for model, toks in tokens_by_model.items()
+                ), 4)
             except Exception:
                 cost = 0.0
 
@@ -118,6 +138,8 @@ def load_claude_sessions() -> list[dict]:
                 "session_id":          session_id[:8],
                 "project":             project,
                 "branch":              branch,
+                "model":               primary_model,
+                "models":              models_used,
                 "input_tokens":        input_tok,
                 "output_tokens":       output_tok,
                 "cache_read_tokens":   cache_read_tok,

@@ -45,7 +45,7 @@ def session_report(args: dict) -> str:
 
     lines = []
     header = (
-        f"{'Date':<17} {'Project':<12} {'Cache%':>7} {'$/sess':>7} "
+        f"{'Date':<17} {'Project':<12} {'Model':<20} {'Cache%':>7} {'$/sess':>7} "
         f"{'Total':>8} {'Out':>7} {'Min':>5} {'Turns':>5} {'Tok/T':>7}"
     )
     div = "─" * len(header)
@@ -57,8 +57,9 @@ def session_report(args: dict) -> str:
         total_cost += cost
         turns = s["turns"] or 1
         tok_per_turn = _loaders.fmt(s["total_tokens"] // turns)
+        model_short = s.get("model", "unknown").replace("claude-", "").replace("-latest", "")
         lines.append(
-            f"{s['date']:<17} {s['project']:<12} "
+            f"{s['date']:<17} {s['project']:<12} {model_short:<20} "
             f"{s['cache_hit_pct']:>6}% ${cost:>6.4f} "
             f"{_loaders.fmt(s['total_tokens']):>8} {_loaders.fmt(s['output_tokens']):>7} "
             f"{s['duration_min']:>5} {s['turns']:>5} {tok_per_turn:>7}"
