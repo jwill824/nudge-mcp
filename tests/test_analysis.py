@@ -1,6 +1,5 @@
 """Tests for core/analysis.py."""
 
-import json
 import pytest
 from datetime import datetime, timezone as _tz
 
@@ -369,7 +368,6 @@ def test_format_session_analysis_growth_warning_when_large_delta():
 
 def test_analyze_session_events_session_health_long_duration():
     """duration_min > 90 triggers health signal."""
-    now = datetime(2026, 4, 18, 12, 0, 0, tzinfo=_tz.utc)
     old = datetime(2026, 4, 18, 9, 0, 0, tzinfo=_tz.utc)  # 3 hours earlier
     events = _make_events()
     events[0]["timestamp"] = old.isoformat().replace("+00:00", "Z")

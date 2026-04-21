@@ -123,7 +123,7 @@ def _monthly_summary(args: dict) -> str:
             filled = int(pct_used / 5)  # 20-char bar
             bar = "█" * filled + "░" * (20 - filled)
             budget_lines = [
-                f"",
+                "",
                 f"Plan:              {plan_label}",
                 f"Monthly budget:    ${claude_budget:.2f}",
                 f"Estimated spend:   ${cost:.2f}",
@@ -132,28 +132,28 @@ def _monthly_summary(args: dict) -> str:
             ]
         else:
             budget_lines = [
-                f"",
+                "",
                 f"Plan:              {plan_label}  (no monthly budget cap)",
                 f"Estimated spend:   ${cost:.2f}",
             ]
 
         lines = [
             f"## Monthly Summary — {month}",
-            f"",
-            f"Token breakdown:",
+            "",
+            "Token breakdown:",
             f"  Input:         {totals['input']:>15,}",
             f"  Output:        {totals['output']:>15,}",
             f"  Cache reads:   {totals['cache_read']:>15,}  ({_loaders.fmt(totals['cache_read'])})",
             f"  Cache creates: {totals['cache_create']:>15,}",
-            f"",
+            "",
             f"At API list prices:                 ${list_cost:.2f}",
             f"Discount factor:                    {discount} ({(1-discount)*100:.1f}% off list)",
         ] + budget_lines + [
-            f"",
+            "",
             f"Sessions tracked: {len(month_sessions)}",
-            f"",
-            f"Note: If this is the current month, compare to your Claude Code subscription",
-            f"usage counter. Cross-month sessions may cause ~$20-50 discrepancy.",
+            "",
+            "Note: If this is the current month, compare to your Claude Code subscription",
+            "usage counter. Cross-month sessions may cause ~$20-50 discrepancy.",
         ]
         return "\n".join(lines)
 
@@ -367,7 +367,7 @@ def _tool_impact(args: dict) -> str:
 
     lines = [
         f"## Tool Impact Analysis — '{query}'",
-        f"",
+        "",
         f"Scanned {len(sessions_with) + len(sessions_without)} sessions"
         + (f" in {month}" if month else ""),
     ]

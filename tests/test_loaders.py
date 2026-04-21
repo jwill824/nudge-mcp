@@ -2,7 +2,6 @@
 
 from core.loaders import (
     load_copilot_sessions,
-    load_copilot_session_events,
     _find_active_session_id,
 )
 

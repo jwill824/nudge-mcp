@@ -271,7 +271,7 @@ def _copilot_monthly_summary(args: dict) -> str:
     if not month_sessions:
         return f"No Copilot CLI session data found for {month}."
 
-    from pricing import COPILOT_PLANS, LIST_PRICES
+    from pricing import LIST_PRICES
     cfg = _config.load()
     copilot_budget  = cfg.get("copilot_monthly_budget", 10.0)
     overage_budget  = cfg.get("copilot_overage_budget", 0.0)
@@ -371,7 +371,7 @@ def _configure_subscription(args: dict) -> str:
     if service not in ("claude", "copilot"):
         return "Invalid service. Use 'claude' or 'copilot'."
 
-    from pricing import CLAUDE_PLANS, COPILOT_PLANS
+    from pricing import CLAUDE_PLANS
     plans      = CLAUDE_PLANS  if service == "claude"  else COPILOT_PLANS
     plan_key   = "claude_plan" if service == "claude"  else "copilot_plan"
     budget_key = "claude_monthly_budget" if service == "claude" else "copilot_monthly_budget"

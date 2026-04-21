@@ -8,7 +8,6 @@ import json
 import pytest
 from datetime import date
 from unittest.mock import patch
-from pathlib import Path
 
 import core.loaders
 import core.analysis
@@ -310,7 +309,8 @@ def test_copilot_premium_usage_empty_items(monkeypatch):
 
 
 def test_copilot_premium_usage_403(monkeypatch):
-    import urllib.request, urllib.error
+    import urllib.request
+    import urllib.error
     monkeypatch.setenv("GH_TOKEN", "fake-token")
     monkeypatch.setenv("GITHUB_USER", "testuser")
 
@@ -323,7 +323,8 @@ def test_copilot_premium_usage_403(monkeypatch):
 
 
 def test_copilot_premium_usage_404(monkeypatch):
-    import urllib.request, urllib.error
+    import urllib.request
+    import urllib.error
     monkeypatch.setenv("GH_TOKEN", "fake-token")
     monkeypatch.setenv("GITHUB_USER", "testuser")
 

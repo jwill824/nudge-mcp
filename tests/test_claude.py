@@ -4,19 +4,13 @@ Tests for core/claude.py and MCP server tool/resource discovery.
 Uses the `client` and `fake_claude_sessions` fixtures from conftest.py.
 """
 
-import csv
 import json
 import pytest
-from pathlib import Path
-from fastmcp.client import Client
-from fastmcp.client.transports import FastMCPTransport
 
 from conftest import _result_text
 
-import core.claude
 from core.loaders import fmt
 from core.claude import _matches_tool, _avg, _tok_per_turn, _tool_impact
-from server import mcp
 
 
 # ---------------------------------------------------------------------------

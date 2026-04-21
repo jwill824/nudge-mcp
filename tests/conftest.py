@@ -9,7 +9,6 @@ sys.path.insert(0, _ROOT)
 import json
 import pytest
 from fastmcp.client import Client
-from fastmcp.client.transports import FastMCPTransport
 import core.loaders
 
 from server import mcp
