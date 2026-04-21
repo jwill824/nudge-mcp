@@ -226,7 +226,7 @@ def load_copilot_sessions() -> list[dict]:
     return sessions
 
 
-def _find_active_session_id() -> Optional[str]:
+def find_active_session_id() -> Optional[str]:
     """Return the best active session directory name.
 
     Priority (each tier sorted by updated_at descending, preferring sessions

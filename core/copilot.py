@@ -438,7 +438,7 @@ def _analyze_copilot_session(args: dict) -> str:
             return f"No session found matching prefix '{session_id}'."
     else:
         # Active session first, then most-recently-modified
-        resolved = _loaders._find_active_session_id()
+        resolved = _loaders.find_active_session_id()
         if not resolved:
             candidates = sorted(
                 (d for d in _loaders.COPILOT_SESSIONS_PATH.iterdir() if (d / "events.jsonl").exists()),
@@ -703,7 +703,7 @@ def _copilot_budget_forecast(args: dict) -> str:
             events_file = session_dir / "events.jsonl"
             if not events_file.exists():
                 continue
-            events = _loaders.load_copilot_session_events(events_file)
+            events = _loaders.load_copilot_session_events(session_dir.name)
             if events:
                 a = _analysis._analyze_session_events(events)
                 if a:

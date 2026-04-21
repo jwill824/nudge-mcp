@@ -17,7 +17,7 @@ from core.loaders import (
     fmt,
     load_claude_sessions,
     load_copilot_sessions,
-    _find_active_session_id,
+    find_active_session_id,
     load_copilot_session_events,
 )
 from core.analysis import (
@@ -46,7 +46,7 @@ from core.copilot import (
 
 __all__ = [
     "CLAUDE_PROJECTS_PATH", "COPILOT_SESSIONS_PATH", "COPILOT_CONFIG_PATH",
-    "fmt", "load_claude_sessions", "load_copilot_sessions", "_find_active_session_id",
+    "fmt", "load_claude_sessions", "load_copilot_sessions", "find_active_session_id",
     "load_copilot_session_events",
     "_WORKFLOW_TOOLS", "_analyze_session_events", "_format_session_analysis",
     "_session_report", "_monthly_summary", "_calibrate", "_matches_tool", "_tool_impact",

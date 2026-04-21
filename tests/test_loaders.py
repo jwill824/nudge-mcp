@@ -2,7 +2,7 @@
 
 from core.loaders import (
     load_copilot_sessions,
-    _find_active_session_id,
+    find_active_session_id,
 )
 
 
@@ -35,9 +35,9 @@ def test_load_copilot_sessions_output_tokens_nonzero():
 
 
 # ---------------------------------------------------------------------------
-# _find_active_session_id() unit test
+# find_active_session_id() unit test
 # ---------------------------------------------------------------------------
 
-def test_find_active_session_id_returns_string_or_none():
-    result = _find_active_session_id()
+def testfind_active_session_id_returns_string_or_none():
+    result = find_active_session_id()
     assert result is None or isinstance(result, str)
